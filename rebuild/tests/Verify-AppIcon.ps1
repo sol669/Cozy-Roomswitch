@@ -6,7 +6,7 @@ Add-Type -AssemblyName System.Drawing
 $root = (Resolve-Path -LiteralPath $PublishPath).Path
 $iconPath = Join-Path $root 'Assets/AppIcon/RoomSwitcher.ico'
 $data = [IO.File]::ReadAllBytes($iconPath)
-$sizes = @(16, 20, 24, 32, 40, 48, 64, 128, 256)
+$sizes = @(16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
 if ([BitConverter]::ToUInt16($data, 0) -ne 0 -or
     [BitConverter]::ToUInt16($data, 2) -ne 1 -or
     [BitConverter]::ToUInt16($data, 4) -ne $sizes.Count) { throw 'Invalid ICO header.' }
@@ -54,4 +54,4 @@ try {
     } }
     if ($pink -lt $embedded.Width * $embedded.Height * 0.15) { throw 'Executable does not contain the pink icon.' }
 } finally { $embedded.Dispose(); $extracted.Dispose() }
-"PASS: 9 transparent ICO frames, preserved white R, pink executable icon, version $version; application not started."
+"PASS: $($sizes.Count) transparent ICO frames, preserved white R, pink executable icon, version $version; application not started."

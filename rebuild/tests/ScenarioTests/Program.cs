@@ -49,6 +49,15 @@ var menuSettings = new AppSettings { Scenarios = [office, living, laptop], Activ
 Check(ScenarioPolicy.Next(menuSettings, basic) is null, "no alternate available scenario: no hotkey target");
 Check(ScenarioPolicy.Next(menuSettings, Snapshot([Screen("main"), Screen("laptop")]))?.Id == laptop.Id,
     "hotkey skips unavailable middle scenario");
+living.IncludeInHotkeyList = false;
+Check(ScenarioPolicy.Next(new AppSettings { Scenarios = [office, living, laptop], ActiveScenarioId = office.Id },
+    Snapshot([Screen("main"), Screen("tv"), Screen("laptop")]))?.Id == laptop.Id,
+    "hotkey skips an available scenario excluded from the hotkey list");
+Check(!living.IncludeInHotkeyList && ScenarioPolicy.TrayOrder(new AppSettings { Scenarios = [office, living, laptop] })
+    .Any(item => item.Scenario.Id == living.Id), "excluded scenario remains in the tray list");
+Check(JsonSerializer.Deserialize<ScenarioDefinition>("{\"Name\":\"Legacy\"}")!.IncludeInHotkeyList,
+    "legacy settings default every scenario into the hotkey list");
+living.IncludeInHotkeyList = true;
 menuSettings.ActiveScenarioId = laptop.Id;
 Check(ScenarioPolicy.Next(menuSettings, Snapshot([Screen("main"), Screen("laptop")]))?.Id == office.Id,
     "hotkey wraps to available partial scenario");

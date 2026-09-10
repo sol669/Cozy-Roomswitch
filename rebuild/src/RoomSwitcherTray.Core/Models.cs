@@ -13,6 +13,9 @@ public sealed class ScenarioDefinition
     public int? VolumePercent { get; set; }
     public ScenarioIcon Icon { get; set; }
     public string IconLetters { get; set; } = string.Empty;
+    // Existing settings predate this flag, so the default deliberately preserves
+    // the old behavior: every scenario participates in the hotkey cycle.
+    public bool IncludeInHotkeyList { get; set; } = true;
 
     [JsonIgnore]
     public bool IsComplete =>
@@ -30,7 +33,8 @@ public sealed class ScenarioDefinition
         AudioDeviceContainerId = AudioDeviceContainerId,
         VolumePercent = VolumePercent,
         Icon = Icon,
-        IconLetters = IconLetters
+        IconLetters = IconLetters,
+        IncludeInHotkeyList = IncludeInHotkeyList
     };
 
     public static string MakeIconLetters(string? value)

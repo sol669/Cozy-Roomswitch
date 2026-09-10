@@ -1,4 +1,4 @@
-Cozy Roomswitch Portable 1.0.3
+Cozy Roomswitch Portable 1.0.4
 =================================
 
 This is the standard compact portable build.

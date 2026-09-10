@@ -165,6 +165,7 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         (true, "Monitors") => "Monitors", (true, "AudioDevices") => "Audio devices",
         (true, "DeviceAlias") => "Name in Cozy Roomswitch", (true, "ScenarioName") => "Name the scenario",
         (true, "ScenarioSettings") => "Scenario name and icon", (true, "Monitor") => "Monitor",
+        (true, "IncludeInHotkeyList") => "Add to hotkey list",
         (true, "Audio") => "Audio device", (true, "Volume") => "Volume",
         (true, "SetVolume") => "Set volume",
         (true, "Sound") => "Sound", (true, "TrayIcon") => "Tray icon",
@@ -173,7 +174,7 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         (true, "Desktop") => "Computer", (true, "Television") => "Television",
         (true, "Sofa") => "Sofa", (true, "Gamepad") => "Gamepad",
         (true, "Close") => "Close", (true, "Save") => "Save", (true, "Delete") => "Delete",
-        (true, "FooterVersion") => "Cozy Roomswitch 1.0.3",
+        (true, "FooterVersion") => "Cozy Roomswitch 1.0.4",
         (false, "Settings") => "Настройки", (false, "Scenarios") => "Сценарии",
         (false, "General") => "Основные", (false, "Devices") => "Имена устройств",
         (false, "NewScenario") => "Новый сценарий", (false, "StartupScenario") => "Сценарий при запуске",
@@ -192,6 +193,7 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         (false, "Monitors") => "Мониторы", (false, "AudioDevices") => "Аудиоустройства",
         (false, "DeviceAlias") => "Имя в Cozy Roomswitch", (false, "ScenarioName") => "Назовите сценарий",
         (false, "ScenarioSettings") => "Имя и иконка сценария", (false, "Monitor") => "Монитор",
+        (false, "IncludeInHotkeyList") => "Добавить в hotkey-список",
         (false, "Audio") => "Аудиоустройство", (false, "Volume") => "Громкость",
         (false, "SetVolume") => "Установить громкость",
         (false, "Sound") => "Звук", (false, "TrayIcon") => "Иконка в трее",
@@ -200,7 +202,7 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         (false, "Desktop") => "Компьютер", (false, "Television") => "Телевизор",
         (false, "Sofa") => "Диван", (false, "Gamepad") => "Геймпад",
         (false, "Close") => "Закрыть", (false, "Save") => "Сохранить", (false, "Delete") => "Удалить",
-        (false, "FooterVersion") => "Cozy Roomswitch 1.0.3",
+        (false, "FooterVersion") => "Cozy Roomswitch 1.0.4",
         _ => key
     };
 
@@ -602,6 +604,26 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
             UpdateFooterState();
         };
         panel.Children.Add(SettingRow(T("ScenarioName"), name));
+
+        var hotkeyState = new TextBlock
+        {
+            MinWidth = 58, TextAlignment = TextAlignment.Right, Opacity = .72,
+            VerticalAlignment = VerticalAlignment.Center,
+            Text = _draft.IncludeInHotkeyList ? (English ? "On" : "Вкл.") : (English ? "Off" : "Откл.")
+        };
+        var hotkeyToggle = new ToggleSwitch
+        {
+            IsOn = _draft.IncludeInHotkeyList, MinWidth = 0, Width = 44,
+            OffContent = string.Empty, OnContent = string.Empty, VerticalAlignment = VerticalAlignment.Center
+        };
+        hotkeyToggle.Toggled += (_, _) =>
+        {
+            if (_loading || _draft is null) return;
+            _draft.IncludeInHotkeyList = hotkeyToggle.IsOn;
+            hotkeyState.Text = hotkeyToggle.IsOn ? (English ? "On" : "Вкл.") : (English ? "Off" : "Откл.");
+            UpdateFooterState();
+        };
+        panel.Children.Add(ToggleSettingRow(T("IncludeInHotkeyList"), hotkeyState, hotkeyToggle));
 
         var iconPicker = new ScenarioIconPicker(_draft.Icon, English);
         panel.Children.Add(SettingRow(T("ScenarioIcon"), iconPicker));
@@ -1455,6 +1477,7 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         string.Equals(left.AudioDeviceId, right.AudioDeviceId, StringComparison.OrdinalIgnoreCase) &&
         left.VolumePercent == right.VolumePercent &&
         left.Icon == right.Icon &&
+        left.IncludeInHotkeyList == right.IncludeInHotkeyList &&
         string.Equals(ScenarioDefinition.MakeIconLetters(left.IconLetters),
             ScenarioDefinition.MakeIconLetters(right.IconLetters), StringComparison.Ordinal);
 

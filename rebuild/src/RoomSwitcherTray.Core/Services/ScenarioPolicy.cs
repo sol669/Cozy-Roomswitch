@@ -53,7 +53,7 @@ public static class ScenarioPolicy
         {
             int index = (current + offset) % settings.Scenarios.Count;
             ScenarioDefinition candidate = settings.Scenarios[index];
-            if (candidate.Id != settings.ActiveScenarioId && CanApply(candidate, snapshot)) return candidate;
+            if (candidate.Id != settings.ActiveScenarioId && candidate.IncludeInHotkeyList && CanApply(candidate, snapshot)) return candidate;
         }
         return null;
     }
