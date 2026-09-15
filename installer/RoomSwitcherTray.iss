@@ -50,8 +50,6 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "prerequisites\windowsdesktop-runtime-8.0.30-win-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall ignoreversion; Check: not IsDotNetDesktop8Installed
-Source: "prerequisites\WindowsAppRuntimeInstall-x64-2.3.1.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall ignoreversion; Check: not IsWindowsAppRuntimeInstalled
 
 [Dirs]
 Name: "{app}\Data"; Permissions: users-modify
@@ -67,8 +65,6 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename:
 Type: filesandordirs; Name: "{app}\Data"
 
 [Run]
-Filename: "{tmp}\windowsdesktop-runtime-8.0.30-win-x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Установка Microsoft .NET Desktop Runtime..."; Flags: waituntilterminated; Check: not IsDotNetDesktop8Installed
-Filename: "{tmp}\WindowsAppRuntimeInstall-x64-2.3.1.exe"; Parameters: "--quiet"; StatusMsg: "Установка Windows App Runtime..."; Flags: waituntilterminated; Check: not IsWindowsAppRuntimeInstalled
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(AppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [Code]
