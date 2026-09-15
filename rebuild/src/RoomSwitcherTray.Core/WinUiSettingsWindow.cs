@@ -19,8 +19,9 @@ namespace RoomSwitcherTray.Core;
 /// <summary>Fixed WinUI settings shell shared by general, device and scenario pages.</summary>
 public sealed class WinUiSettingsWindow : Window, IDisposable
 {
-    private const double TitleBandHeight = 64;
-    private const double ContentTopMargin = 8;
+    // Navigation and page content intentionally share this top edge.  That makes the
+    // left "General" item and the right page heading one visual row.
+    private const double ContentTopMargin = 18;
     private const double ValueColumnWidth = 244;
     private readonly SettingsStore _settings;
     private readonly TrayService _tray;
@@ -78,7 +79,7 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         _root.IsTabStop = true;
         _pageHost.HorizontalContentAlignment = HorizontalAlignment.Stretch;
         _pageHost.VerticalContentAlignment = VerticalAlignment.Stretch;
-        Title = "Cozy Roomswitch";
+        UpdateWindowTitle();
         try { SystemBackdrop = new MicaBackdrop(); } catch { }
 
         AppWindow appWindow = ConfigureWindow();
@@ -117,8 +118,11 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         try { window.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon", "RoomSwitcher.ico")); }
         catch (Exception ex) { SettingsStore.Log(ex); }
         NativeTheme.Apply(hwnd, _settings.Current.Theme);
-        const int logicalWidth = 900;
-        const int logicalHeight = 820;
+        // A compact caption replaces the large in-page title.  The reclaimed vertical
+        // room keeps the regular scenario page free of a tiny, distracting scrollbar;
+        // the added width leaves resolution labels intact at normal DPI.
+        const int logicalWidth = 980;
+        const int logicalHeight = 840;
         double scale = Math.Max(1, GetDpiForWindow(hwnd) / 96.0);
         GetCursorPos(out NativePoint cursor);
         RectInt32 work = DisplayArea.GetFromPoint(
@@ -280,7 +284,6 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         navigation.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
         var settingsGroup = new StackPanel { Spacing = 5 };
-        settingsGroup.Children.Add(SettingsTitleCell(T("Settings")));
         settingsGroup.Children.Add(NavButton(T("General"), "general"));
         settingsGroup.Children.Add(NavButton(T("Devices"), "devices"));
         settingsGroup.Children.Add(NavigationSeparatorCell());
@@ -308,18 +311,6 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
             VerticalAlignment = VerticalAlignment.Center,
             Background = new SolidColorBrush(Color.FromArgb(55, 128, 128, 128)),
             Margin = new Thickness(8, 0, 8, 0)
-        }
-    };
-
-    private static Border SettingsTitleCell(string text) => new()
-    {
-        Height = TitleBandHeight,
-        Child = new TextBlock
-        {
-            Text = text,
-            Style = (Style)Application.Current.Resources["TitleTextBlockStyle"],
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(8, 0, 0, 0)
         }
     };
 
@@ -365,14 +356,18 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
             AutomationProperties.SetName(remote, T("RemoteSession"));
             _scenarioNavPanel.Children.Add(remote);
         }
-        foreach (ScenarioDefinition scenario in _scenarios)
+        for (int index = 0; index < _scenarios.Count; index++)
         {
+            ScenarioDefinition scenario = _scenarios[index];
             string page = ScenarioPage(scenario.Id);
             Button button = NavButton(scenario.Name, page);
             button.HorizontalContentAlignment = HorizontalAlignment.Stretch;
             var content = new Grid { ColumnSpacing = 12 };
             content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
+            // Reserve the right edge for the reorder controls without shifting the
+            // scenario icon when those controls appear on hover.
+            content.Margin = new Thickness(0, 0, 48, 0);
             var label = new TextBlock
             {
                 Text = scenario.Name,
@@ -392,9 +387,58 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
             content.Children.Add(icon);
             button.Content = content;
             AutomationProperties.SetName(button, scenario.Name);
-            _scenarioNavPanel.Children.Add(button);
+            var row = new Grid { Height = 46 };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
+            Grid.SetColumnSpan(button, 3);
+            row.Children.Add(button);
+
+            Button up = ReorderButton("↑", index > 0);
+            Button down = ReorderButton("↓", index < _scenarios.Count - 1);
+            Grid.SetColumn(up, 1); row.Children.Add(up);
+            Grid.SetColumn(down, 2); row.Children.Add(down);
+            void ShowReorderButtons(bool visible)
+            {
+                up.Opacity = down.Opacity = visible ? 1 : 0;
+                up.IsHitTestVisible = down.IsHitTestVisible = visible;
+            }
+            ShowReorderButtons(false);
+            row.PointerEntered += (_, _) => ShowReorderButtons(true);
+            row.PointerExited += (_, _) => ShowReorderButtons(false);
+            up.Click += (_, _) => MoveScenario(scenario.Id, -1);
+            down.Click += (_, _) => MoveScenario(scenario.Id, 1);
+            _scenarioNavPanel.Children.Add(row);
         }
         _scenarioNavPanel.Children.Add(NavButton("+ " + T("NewScenario"), "new"));
+        RefreshNavigationSelection();
+    }
+
+    private static Button ReorderButton(string glyph, bool enabled) => new()
+    {
+        Content = glyph,
+        Width = 24,
+        Height = 30,
+        MinWidth = 0,
+        MinHeight = 0,
+        Padding = new Thickness(0),
+        FontSize = 16,
+        HorizontalAlignment = HorizontalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Center,
+        Background = new SolidColorBrush(Colors.Transparent),
+        BorderThickness = new Thickness(0),
+        IsEnabled = enabled
+    };
+
+    private void MoveScenario(Guid id, int offset)
+    {
+        int source = _scenarios.FindIndex(item => item.Id == id);
+        int destination = source + offset;
+        if (source < 0 || destination < 0 || destination >= _scenarios.Count) return;
+        (_scenarios[source], _scenarios[destination]) = (_scenarios[destination], _scenarios[source]);
+        _settings.Current.Scenarios = _scenarios.Select(item => item.Clone()).ToList();
+        _settings.Save();
+        RebuildScenarioNavigation();
         RefreshNavigationSelection();
     }
 
@@ -446,7 +490,6 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
     {
         _loading = true;
         StackPanel panel = PagePanel();
-        panel.Children.Add(TitleSpacerCell());
         panel.Children.Add(HeaderCell(T("Behavior")));
         _startupChoiceBox = SettingsComboBox(new ComboBox { DisplayMemberPath = "Name" });
         var startupChoices = new List<StartupChoice> { new(null, T("LastLoaded")) };
@@ -551,7 +594,6 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
     {
         _loading = true;
         StackPanel panel = PagePanel();
-        panel.Children.Add(TitleSpacerCell());
         panel.Children.Add(HeaderCell(T("RemoteSession")));
         TextBox volume = SettingsTextBox(new TextBox { Text = _remoteVolumeInput.Text, PlaceholderText = "0–100" });
         volume.InputScope = new InputScope { Names = { new InputScopeName { NameValue = InputScopeNameValue.Number } } };
@@ -573,7 +615,6 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
     {
         _loading = true;
         StackPanel panel = PagePanel();
-        panel.Children.Add(TitleSpacerCell());
         AddDeviceAliasRows(panel, T("SystemDisplayName"), _displays.Select(display => (display.Id, display.Name))
             .Concat(_scenarios.SelectMany(item => item.DisplayIds)
                 .Select(id => (id, _settings.Current.KnownDeviceNames.GetValueOrDefault(id) ?? T("Monitor")))));
@@ -588,7 +629,6 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
     {
         _loading = true;
         StackPanel panel = PagePanel();
-        panel.Children.Add(TitleSpacerCell());
         if (_draft is null)
         {
             FinishInitialLoading(panel);
@@ -908,11 +948,11 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
 
     private static StackPanel PagePanel() => new()
     {
-        Width = 540,
+        Width = 620,
         HorizontalAlignment = HorizontalAlignment.Left,
         Spacing = 5,
-        // 12 scenario rows + 12 gaps + title + top margin = 684 logical px.
-        // Keep the normal 820px window usable without shrinking its 46px cards.
+        // The compact caption frees a complete content row.  A 620px page area keeps
+        // the three display controls readable without squeezing their 46px cards.
         Margin = new Thickness(24, ContentTopMargin, 0, 0)
     };
 
@@ -940,8 +980,6 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         }
         return cell;
     }
-
-    private static Border TitleSpacerCell() => new() { Height = TitleBandHeight };
 
     private void FinishInitialLoading(FrameworkElement element)
     {
@@ -1592,6 +1630,7 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
 
     private void ApplyTheme()
     {
+        UpdateWindowTitle();
         _root.RequestedTheme = _settings.Current.Theme switch
         {
             AppThemeMode.Light => ElementTheme.Light,
@@ -1600,6 +1639,10 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         };
         NativeTheme.Apply(WinRT.Interop.WindowNative.GetWindowHandle(this), _settings.Current.Theme);
     }
+
+    private void UpdateWindowTitle() => Title = English
+        ? "Settings Cozy Roomswitch"
+        : "Настройки Cozy Roomswitch";
 
     private bool IsDark() => _settings.Current.Theme == AppThemeMode.Dark ||
         (_settings.Current.Theme == AppThemeMode.System && NativeTheme.IsSystemDark());

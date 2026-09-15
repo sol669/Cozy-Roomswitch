@@ -55,6 +55,11 @@ Check(ScenarioPolicy.Next(new AppSettings { Scenarios = [office, living, laptop]
     "hotkey skips an available scenario excluded from the hotkey list");
 Check(!living.IncludeInHotkeyList && ScenarioPolicy.TrayOrder(new AppSettings { Scenarios = [office, living, laptop] })
     .Any(item => item.Scenario.Id == living.Id), "excluded scenario remains in the tray list");
+Check(ScenarioPolicy.TrayOrder(new AppSettings
+{
+    Scenarios = [office, living, laptop], ActiveScenarioId = living.Id
+}).Select(item => item.Scenario.Id).SequenceEqual([office.Id, living.Id, laptop.Id]),
+    "tray preserves the exact configured order even when another scenario is active");
 Check(JsonSerializer.Deserialize<ScenarioDefinition>("{\"Name\":\"Legacy\"}")!.IncludeInHotkeyList,
     "legacy settings default every scenario into the hotkey list");
 living.IncludeInHotkeyList = true;
@@ -448,10 +453,10 @@ Guid hdmiContainer = Guid.NewGuid();
     var c = Scenario("C", ["screen"], "");
     var settings = new AppSettings { Scenarios = [a, b, c], ActiveScenarioId = b.Id };
     var order = ScenarioPolicy.TrayOrder(settings).ToList();
-    Check(order.Select(item => item.Scenario.Id).SequenceEqual([b.Id, a.Id, c.Id]), "active scenario moves first; remaining order stays stable");
-    Check(order.Select(item => item.Index).SequenceEqual([1, 0, 2]), "menu commands retain original scenario indices after sorting");
+    Check(order.Select(item => item.Scenario.Id).SequenceEqual([a.Id, b.Id, c.Id]), "active scenario never reorders the tray");
+    Check(order.Select(item => item.Index).SequenceEqual([0, 1, 2]), "menu commands retain original scenario indices");
     Check(settings.Scenarios.Select(item => item.Id).SequenceEqual([a.Id, b.Id, c.Id]), "tray ordering does not modify saved scenario order");
-    Check(ScenarioPolicy.Next(settings, Snapshot([Screen("screen")]))?.Id == c.Id, "next hotkey keeps original cycle after tray reorder");
+    Check(ScenarioPolicy.Next(settings, Snapshot([Screen("screen")]))?.Id == c.Id, "next hotkey keeps the configured cycle");
     settings.ActiveScenarioId = null;
     Check(ScenarioPolicy.TrayOrder(settings).Select(item => item.Index).SequenceEqual([0, 1, 2]), "no active scenario retains saved menu order");
 }

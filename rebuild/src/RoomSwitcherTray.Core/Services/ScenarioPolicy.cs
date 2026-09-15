@@ -23,10 +23,10 @@ public sealed record ScenarioStatus(ScenarioHealth Health, string Reason, Scenar
 // Pure rules shared by menu, hotkey, startup and the coordinator's regression tests.
 public static class ScenarioPolicy
 {
-    // Keep the original index for menu command dispatch; only presentation order changes.
+    // Tray order is the exact order configured by the user. Keep the original
+    // index as it is also used for menu command dispatch.
     public static IEnumerable<(ScenarioDefinition Scenario, int Index)> TrayOrder(AppSettings settings) =>
-        settings.Scenarios.Select((scenario, index) => (Scenario: scenario, Index: index))
-            .OrderByDescending(item => item.Scenario.Id == settings.ActiveScenarioId);
+        settings.Scenarios.Select((scenario, index) => (Scenario: scenario, Index: index));
 
     // The tray describes the selected scenario, not the global/current Windows topology.
     // Preserve configured IDs even when disconnected. Never substitute Windows' fallback output.
