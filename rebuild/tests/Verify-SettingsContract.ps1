@@ -17,14 +17,18 @@ $presenter = $selected.SelectSingleNode('.//p:ContentPresenter', $namespaces)
 foreach ($property in @('Background','Foreground')) {
     if ($presenter.GetAttribute($property) -ne "{TemplateBinding $property}") { throw "Selection must share $property with the icon." }
 }
-if ($window -notmatch 'Style = \(Style\)Application.Current.Resources\["TitleTextBlockStyle"\]') { throw 'Title must use the native title style.' }
-$title = [double][regex]::Match($window, 'TitleBandHeight = (\d+)').Groups[1].Value
+if ($window -notmatch 'Настройки Cozy Roomswitch' -or $window -notmatch 'UpdateWindowTitle\(\)') {
+    throw 'The compact native window title is missing.'
+}
+if ($window -match 'SettingsTitleCell|TitleSpacerCell|TitleBandHeight') {
+    throw 'The removed in-page settings title still reserves layout space.'
+}
 $top = [double][regex]::Match($window, 'ContentTopMargin = (\d+)').Groups[1].Value
 # Worst case: name + icon + letters + four monitors + audio + volume mode + value; 3 headers.
 # The page is scrollable when both optional rows are visible on a short screen.
-$height = $top + $title + 13 * 46 + 13 * 5
+$height = $top + 13 * 46 + 13 * 5
 if ($height -gt 750 -or $window -notmatch 'return PageScroll\(panel\)') { throw "Scenario overflow is not handled: $height" }
-if ($top -le 4 -or $title -le 40) { throw 'Missing requested breathing room.' }
+if ($top -le 4) { throw 'Missing requested breathing room.' }
 if ($window -notmatch 'Margin = new Thickness\(2, 0, 15, 0\)') { throw 'Device heading columns moved incorrectly.' }
 if (Test-Path -LiteralPath (Join-Path $source 'QuietToolTip.cs')) { throw 'Delayed settings tooltip implementation returned.' }
 if (($window + $picker) -match 'QuietToolTip|ToolTipService|new ToolTip') { throw 'Settings tooltips returned.' }
@@ -41,4 +45,4 @@ if ($window -match 'VolumeChoices|0% — mute' -or
     -not $window.Contains('_volumeInput.IsValid') -or -not $window.Contains('VolumePercent = null')) {
     throw 'Two-mode, validated startup-volume UI/default contract is missing.'
 }
-"PASS: stable selection, native title, aligned headers, no settings tooltips, flat rounded palette, Letters last, two-mode volume; scrollable full height $height logical pixels."
+"PASS: stable selection, compact native title, aligned headers, no settings tooltips, flat rounded palette, Letters last, two-mode volume; scrollable full height $height logical pixels."
