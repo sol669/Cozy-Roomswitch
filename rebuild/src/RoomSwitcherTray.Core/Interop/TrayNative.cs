@@ -12,6 +12,9 @@ internal static class TrayNative
     internal const uint WM_POWERBROADCAST = 0x0218;
     internal const uint WM_SETTINGCHANGE = 0x001A;
     internal const uint WM_THEMECHANGED = 0x031A;
+    internal const uint WM_SYSCOMMAND = 0x0112;
+    internal const nuint SC_MONITORPOWER = 0xF170;
+    internal static readonly nint HWND_BROADCAST = new(0xffff);
     internal const uint WM_LBUTTONDBLCLK = 0x0203;
     internal const uint WM_RBUTTONUP = 0x0205;
     internal const uint TPM_RIGHTBUTTON = 0x0002;
@@ -102,6 +105,7 @@ internal static class TrayNative
     [DllImport("user32.dll")] internal static extern bool GetCursorPos(out POINT point);
     [DllImport("user32.dll")] internal static extern bool SetForegroundWindow(nint window);
     [DllImport("user32.dll")] internal static extern bool PostMessage(nint window, uint message, nuint wParam, nint lParam);
+    [DllImport("user32.dll")] internal static extern nint SendMessage(nint window, uint message, nuint wParam, nint lParam);
     [DllImport("user32.dll")] internal static extern bool DestroyIcon(nint icon);
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     internal static extern nint RegisterDeviceNotification(nint recipient, ref DEVICE_INTERFACE_FILTER filter, uint flags);

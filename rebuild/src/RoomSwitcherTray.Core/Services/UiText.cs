@@ -19,6 +19,8 @@ public static class UiText
         (true, "UnknownResolution") => "resolution unknown",
         (true, "Muted") => "muted",
         (true, "DisableHdr") => "Turn off HDR",
+        (true, "TurnOffMonitor") => "Turn off monitor",
+        (true, "TurnOffMonitors") => "Turn off monitors",
         (true, "EnableHdr") => "Turn on HDR",
         (false, "Next") => "Следующий сценарий",
         (false, "Settings") => "Настройки…",
@@ -32,6 +34,8 @@ public static class UiText
         (false, "UnknownResolution") => "разрешение неизвестно",
         (false, "Muted") => "без звука",
         (false, "DisableHdr") => "Выключить HDR",
+        (false, "TurnOffMonitor") => "Выключить монитор",
+        (false, "TurnOffMonitors") => "Выключить мониторы",
         (false, "EnableHdr") => "Включить HDR",
         _ => key
     };

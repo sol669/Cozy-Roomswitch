@@ -23,6 +23,10 @@ internal sealed class WindowsScenarioDevices(DisplayService displays, AudioServi
     public Task ApplyDisplaysAsync(IReadOnlyCollection<string> ids) =>
         Task.Run(() => displays.ApplyDisplays(ids));
 
+    public Task ApplyResolutionsAsync(ScenarioDefinition scenario) =>
+        Task.Run(() => displays.ApplyDisplaySettings(
+            scenario.DisplayResolutionPresets, scenario.DisplayScalePercents));
+
     public void ApplyAudio(AudioDevice device, int? volume)
     {
         AudioService.SetDefault(device.Id);

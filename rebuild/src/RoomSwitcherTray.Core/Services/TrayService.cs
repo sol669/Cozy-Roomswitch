@@ -10,16 +10,22 @@ public sealed class TrayService : IDisposable
     private const uint ScenarioCommandBase = 2000;
     private const uint SettingsCommand = 3000;
     private const uint ExitCommand = 3001;
+    private const uint TurnOffMonitorsCommand = 3002;
     private const uint HdrCommandBase = 4000;
+    private const uint ResolutionCommandBase = 4500;
+    private const uint ScaleCommandBase = 4700;
     private const uint MuteCommand = 5000;
+    private const uint AudioDeviceCommandBase = 5100;
 
     private readonly SettingsStore _settings;
     private readonly ScenarioService _scenarios;
     private readonly TrayNative.WindowProcedure _windowProcedure;
     private readonly Microsoft.UI.Dispatching.DispatcherQueue _dispatcher;
     private readonly Dictionary<uint, ActiveDisplayStatus> _hdrCommands = [];
+    private readonly Dictionary<uint, (ActiveDisplayStatus Display, DisplayResolutionPreset Preset)> _resolutionCommands = [];
+    private readonly Dictionary<uint, (ActiveDisplayStatus Display, int Percent)> _scaleCommands = [];
+    private readonly Dictionary<uint, AudioDevice> _audioDeviceCommands = [];
     private string? _muteEndpointId;
-    private Guid? _muteScenarioId;
     private nint _window;
     private nint _icon;
     private TrayNative.NOTIFYICONDATA _notifyData;
@@ -141,14 +147,17 @@ public sealed class TrayService : IDisposable
         try
         {
             _hdrCommands.Clear();
+            _resolutionCommands.Clear();
+            _scaleCommands.Clear();
+            _audioDeviceCommands.Clear();
             _muteEndpointId = null;
-            _muteScenarioId = null;
             if (IsRemoteSession)
             {
                 TrayNative.AppendMenu(menu, TrayNative.MF_STRING | TrayNative.MF_DISABLED, 0, UiText.Get(_settings.Current, "Remote"));
                 TrayNative.AppendMenu(menu, TrayNative.MF_SEPARATOR, 0, null);
                 BuildStatusSection(menu, remoteSession: true);
                 TrayNative.AppendMenu(menu, TrayNative.MF_SEPARATOR, 0, null);
+                AppendTurnOffMonitors(menu);
                 TrayNative.AppendMenu(menu, TrayNative.MF_STRING, SettingsCommand, UiText.Get(_settings.Current, "Settings"));
             }
             else if (_settings.IsConfigured)
@@ -169,6 +178,7 @@ public sealed class TrayService : IDisposable
                 TrayNative.AppendMenu(menu, TrayNative.MF_SEPARATOR, 0, null);
                 BuildStatusSection(menu, remoteSession: false);
                 TrayNative.AppendMenu(menu, TrayNative.MF_SEPARATOR, 0, null);
+                AppendTurnOffMonitors(menu);
                 TrayNative.AppendMenu(menu, TrayNative.MF_STRING, SettingsCommand, UiText.Get(_settings.Current, "Settings"));
             }
             else
@@ -224,16 +234,45 @@ public sealed class TrayService : IDisposable
                     ? remoteDisplayCount > 1 ? $"{UiText.Get(_settings.Current, "RemoteDisplay")} - {remoteDisplayIndex}" : UiText.Get(_settings.Current, "RemoteDisplay")
                     :
                     ScenarioPolicy.Name(_settings.Current, snapshot, id, english ? "Monitor" : "Монитор");
+                int? activeScale = display is null ? null : App.Displays.GetScale(display.Id);
                 string state = device?.IsAvailable != true ? disconnected : display is null ? unused :
-                    $"{display.Width} × {display.Height} · {(remoteSession ? "SDR" : display.HdrEnabled ? "HDR" : "SDR")}";
+                    $"{display.Width} × {display.Height}" +
+                    (activeScale.HasValue ? $" · {activeScale}%" : string.Empty) +
+                    $" · {(remoteSession ? "SDR" : display.HdrEnabled ? "HDR" : "SDR")}";
                 string text = $"{name}\t{state}";
-                if (!remoteSession && device?.IsAvailable == true && display?.HdrSupported == true)
+                if (!remoteSession && device?.IsAvailable == true && display is not null)
                 {
-                    uint command = HdrCommandBase + (uint)_hdrCommands.Count;
-                    _hdrCommands[command] = display;
                     nint submenu = TrayNative.CreatePopupMenu();
-                    TrayNative.AppendMenu(submenu, TrayNative.MF_STRING, command,
-                        UiText.Get(_settings.Current, display.HdrEnabled ? "DisableHdr" : "EnableHdr"));
+                    if (display.HdrSupported)
+                    {
+                        uint command = HdrCommandBase + (uint)_hdrCommands.Count;
+                        _hdrCommands[command] = display;
+                        TrayNative.AppendMenu(submenu, TrayNative.MF_STRING, command,
+                            UiText.Get(_settings.Current, display.HdrEnabled ? "DisableHdr" : "EnableHdr"));
+                    }
+                    nint resolutions = TrayNative.CreatePopupMenu();
+                    foreach (DisplayResolutionPreset preset in App.Displays.GetSupportedResolutionPresets(display.Id))
+                    {
+                        (int width, int height) = DisplayResolution.Size(preset);
+                        uint command = ResolutionCommandBase + (uint)_resolutionCommands.Count;
+                        _resolutionCommands[command] = (display, preset);
+                        bool checkedItem = display.Width == width && display.Height == height;
+                        TrayNative.AppendMenu(resolutions, TrayNative.MF_STRING | (checkedItem ? TrayNative.MF_CHECKED : 0),
+                            command, ResolutionLabel(preset));
+                    }
+                    TrayNative.AppendMenu(submenu, TrayNative.MF_STRING | TrayNative.MF_POPUP,
+                        (nuint)resolutions, english ? "Resolution" : "Разрешение");
+                    nint scales = TrayNative.CreatePopupMenu();
+                    IReadOnlyList<int> supportedScales = App.Displays.GetSupportedScales(display.Id);
+                    foreach (int percent in supportedScales.Count > 0 ? supportedScales : new[] { 100, 125, 150, 175, 200 })
+                    {
+                        uint command = ScaleCommandBase + (uint)_scaleCommands.Count;
+                        _scaleCommands[command] = (display, percent);
+                        TrayNative.AppendMenu(scales, TrayNative.MF_STRING |
+                            (activeScale == percent ? TrayNative.MF_CHECKED : 0), command, $"{percent}%");
+                    }
+                    TrayNative.AppendMenu(submenu, TrayNative.MF_STRING | TrayNative.MF_POPUP,
+                        (nuint)scales, english ? "Scale" : "Масштаб");
                     TrayNative.AppendMenu(menu, TrayNative.MF_STRING | TrayNative.MF_POPUP, (nuint)submenu, text);
                 }
                 else
@@ -253,7 +292,14 @@ public sealed class TrayService : IDisposable
                 AudioDevice? remoteAudio = snapshot.Audio.FirstOrDefault(item => item.IsActive && item.IsDefault);
                 if (remoteAudio is not null) audioRows.Add((remoteAudio.Id, remoteAudio));
             }
-            else if (selected.AudioId is not null) audioRows.Add((selected.AudioId, selected.Audio));
+            else
+            {
+                // The tray is a live control surface: after a temporary manual switch,
+                // show the endpoint Windows is actually using instead of rewriting the scenario.
+                AudioDevice? currentAudio = snapshot.Audio.FirstOrDefault(item => item.IsActive && item.IsDefault);
+                if (currentAudio is not null) audioRows.Add((currentAudio.Id, currentAudio));
+                else if (selected.AudioId is not null) audioRows.Add((selected.AudioId, selected.Audio));
+            }
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach ((string id, AudioDevice? device) in audioRows)
             {
@@ -271,10 +317,31 @@ public sealed class TrayService : IDisposable
                 if (audio is not null)
                 {
                     _muteEndpointId = device!.Id;
-                    _muteScenarioId = remoteSession ? null : scenario?.Id;
                     nint submenu = TrayNative.CreatePopupMenu();
                     TrayNative.AppendMenu(submenu, TrayNative.MF_STRING | (audio.IsMuted ? TrayNative.MF_CHECKED : 0),
                         MuteCommand, UiText.Get(_settings.Current, "Mute"));
+                    if (!remoteSession)
+                    {
+                        IReadOnlyList<AudioDevice> availableAudio = AudioService.GetVisibleRenderDevices(
+                            snapshot.Audio, snapshot.Displays, _settings.Current.RetiredAudioDeviceIds,
+                            [.. _settings.Current.Scenarios.Cast<ScenarioDefinition?>()])
+                            .Where(item => item.IsActive)
+                            .OrderByDescending(item => item.IsDefault)
+                            .ThenBy(item => DeviceAliasService.NameFor(_settings.Current, item.Id,
+                                item.DisplayName ?? item.Name), StringComparer.CurrentCultureIgnoreCase)
+                            .ToList();
+                        if (availableAudio.Count > 0)
+                            TrayNative.AppendMenu(submenu, TrayNative.MF_SEPARATOR, 0, null);
+                        foreach (AudioDevice endpoint in availableAudio)
+                        {
+                            uint command = AudioDeviceCommandBase + (uint)_audioDeviceCommands.Count;
+                            _audioDeviceCommands[command] = endpoint;
+                            string endpointName = DeviceAliasService.NameFor(_settings.Current, endpoint.Id,
+                                endpoint.DisplayName ?? endpoint.Name);
+                            TrayNative.AppendMenu(submenu, TrayNative.MF_STRING |
+                                (endpoint.IsDefault ? TrayNative.MF_CHECKED : 0), command, endpointName);
+                        }
+                    }
                     TrayNative.AppendMenu(menu, TrayNative.MF_STRING | TrayNative.MF_POPUP, (nuint)submenu, $"{name}\t{state}");
                 }
                 else TrayNative.AppendMenu(menu, TrayNative.MF_STRING | TrayNative.MF_GRAYED, 0, $"{name}\t{state}");
@@ -291,13 +358,28 @@ public sealed class TrayService : IDisposable
         if (command >= ScenarioCommandBase && command < ScenarioCommandBase + _settings.Current.Scenarios.Count)
         { _ = ApplyAsync(_settings.Current.Scenarios[(int)(command - ScenarioCommandBase)].Id); return; }
         if (_hdrCommands.TryGetValue(command, out ActiveDisplayStatus? display)) { _ = ToggleHdrAsync(display); return; }
+        if (_resolutionCommands.TryGetValue(command, out var resolution)) { _ = SetResolutionAsync(resolution.Display, resolution.Preset); return; }
+        if (_scaleCommands.TryGetValue(command, out var scale)) { _ = SetScaleAsync(scale.Display, scale.Percent); return; }
+        if (_audioDeviceCommands.TryGetValue(command, out AudioDevice? audioDevice)) { _ = SetAudioDeviceAsync(audioDevice); return; }
         switch (command)
         {
             case MuteCommand: ToggleMute(); break;
+            case TurnOffMonitorsCommand: TurnOffMonitors(); break;
             case SettingsCommand: ShowSettings(); break;
             case ExitCommand: App.Quit(); break;
         }
     }
+
+    private void AppendTurnOffMonitors(nint menu)
+    {
+        int count = _scenarios.Snapshot.ActiveDisplays.Count;
+        string key = count == 1 ? "TurnOffMonitor" : "TurnOffMonitors";
+        TrayNative.AppendMenu(menu, TrayNative.MF_STRING, TurnOffMonitorsCommand, UiText.Get(_settings.Current, key));
+    }
+
+    private static void TurnOffMonitors() =>
+        TrayNative.SendMessage(TrayNative.HWND_BROADCAST, TrayNative.WM_SYSCOMMAND,
+            TrayNative.SC_MONITORPOWER, new nint(2));
 
     private async Task ToggleHdrAsync(ActiveDisplayStatus display)
     {
@@ -314,6 +396,63 @@ public sealed class TrayService : IDisposable
         }
     }
 
+    private async Task SetResolutionAsync(ActiveDisplayStatus display, DisplayResolutionPreset preset)
+    {
+        try
+        {
+            await Task.Run(() => App.Displays.SetResolution(display.Id, preset));
+            ShowNotification($"Разрешение для «{display.Name}»: {ResolutionLabel(preset)}.", true);
+            await _scenarios.RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            SettingsStore.Log(ex);
+            ShowNotification($"Не удалось изменить разрешение: {ex.Message}", false);
+        }
+    }
+
+    private async Task SetScaleAsync(ActiveDisplayStatus display, int percent)
+    {
+        try
+        {
+            await Task.Run(() => App.Displays.SetScale(display.Id, percent));
+            ShowNotification($"Масштаб для «{display.Name}»: {percent}%.", true);
+        }
+        catch (Exception ex)
+        {
+            SettingsStore.Log(ex);
+            ShowNotification($"Не удалось изменить масштаб: {ex.Message}", false);
+        }
+    }
+
+    private async Task SetAudioDeviceAsync(AudioDevice device)
+    {
+        try
+        {
+            await Task.Run(() => AudioService.SetDefault(device.Id));
+            await _scenarios.RefreshAsync();
+            string name = DeviceAliasService.NameFor(_settings.Current, device.Id,
+                device.DisplayName ?? device.Name);
+            ShowNotification($"Аудиоустройство: {name}.", true);
+        }
+        catch (Exception ex)
+        {
+            SettingsStore.Log(ex);
+            ShowNotification($"Не удалось переключить аудиоустройство: {ex.Message}", false);
+        }
+    }
+
+    private static string ResolutionLabel(DisplayResolutionPreset preset)
+    {
+        (int width, int height) = DisplayResolution.Size(preset);
+        return preset switch
+        {
+            DisplayResolutionPreset.UltraHd4K => $"4K · {width} × {height}",
+            DisplayResolutionPreset.QuadHd2K => $"2K · {width} × {height}",
+            _ => $"{height}p · {width} × {height}"
+        };
+    }
+
 
     private void ToggleMute()
     {
@@ -321,13 +460,6 @@ public sealed class TrayService : IDisposable
         {
             if (_muteEndpointId is null) return;
             IReadOnlyList<AudioDevice> endpoints = AudioService.GetRenderDevices();
-            if (!IsRemoteSession)
-            {
-                ScenarioDefinition? scenario = GetActiveScenario();
-                if (scenario?.Id != _muteScenarioId || scenario is null) return;
-                var fresh = _scenarios.Snapshot with { Audio = endpoints, AudioReadFailed = false };
-                if (!ScenarioPolicy.Same(ScenarioPolicy.FindAudio(scenario, fresh)?.Id, _muteEndpointId)) return;
-            }
             AudioDevice? device = endpoints.FirstOrDefault(item => item.IsActive && ScenarioPolicy.Same(item.Id, _muteEndpointId));
             if (device is null) return;
             AudioEndpointStatus current = AudioService.GetEndpointStatus(device);

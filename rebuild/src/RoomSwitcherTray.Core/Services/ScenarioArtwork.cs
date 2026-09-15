@@ -15,7 +15,8 @@ internal static class ScenarioArtwork
         ScenarioIcon.Microphone, ScenarioIcon.Webcam, ScenarioIcon.Deck, ScenarioIcon.DesktopAudio
     });
 
-    public static Bitmap Render(ScenarioIcon icon, string? letters, Color color, int size)
+    public static Bitmap Render(ScenarioIcon icon, string? letters, Color color, int size,
+        bool compactThreeLetters = false)
     {
         var bitmap = new Bitmap(size, size, PixelFormat.Format32bppPArgb);
         try
@@ -26,7 +27,7 @@ internal static class ScenarioArtwork
             {
                 graphics.SmoothingMode = SmoothingMode.AntiAlias;
                 graphics.ScaleTransform(size / 32f, size / 32f);
-                using GraphicsPath path = LetterPath(letters);
+                using GraphicsPath path = LetterPath(letters, compactThreeLetters);
                 using var brush = new SolidBrush(color);
                 graphics.FillPath(brush, path);
             }
@@ -85,14 +86,16 @@ internal static class ScenarioArtwork
         return bitmap;
     }
 
-    private static GraphicsPath LetterPath(string? letters)
+    private static GraphicsPath LetterPath(string? letters, bool compactThreeLetters)
     {
         string text = ScenarioDefinition.MakeIconLetters(letters);
         if (text.Length == 0) text = "AB";
+        bool compact = compactThreeLetters && text.Length == 3;
         var path = new GraphicsPath();
         using var family = new FontFamily("Segoe UI");
         using var format = new StringFormat(StringFormat.GenericTypographic);
-        path.AddString(text, family, (int)FontStyle.Regular, 28, PointF.Empty, format);
+        path.AddString(text, family, (int)(compact ? FontStyle.Bold : FontStyle.Regular),
+            28, PointF.Empty, format);
         RectangleF bounds = path.GetBounds();
         if (bounds.Width <= 0 || bounds.Height <= 0)
         {
@@ -100,11 +103,15 @@ internal static class ScenarioArtwork
             path.AddString("AB", family, (int)FontStyle.Regular, 28, PointF.Empty, format);
             bounds = path.GetBounds();
         }
-        // Ordinary Segoe UI proportions. Never stretch the two axes separately.
-        float scale = Math.Min(1, Math.Min(28 / bounds.Width, 20 / bounds.Height));
-        using var transform = new Matrix(scale, 0, 0, scale,
-            (32 - bounds.Width * scale) / 2 - bounds.X * scale,
-            (32 - bounds.Height * scale) / 2 - bounds.Y * scale);
+        // Three characters are otherwise reduced to unreadable microtext in a
+        // 16/32-pixel notification icon. Keep their full height and condense only
+        // the horizontal axis; one- and two-character monograms retain normal proportions.
+        float scaleX = compact ? Math.Min(1, 29 / bounds.Width) :
+            Math.Min(1, Math.Min(28 / bounds.Width, 20 / bounds.Height));
+        float scaleY = compact ? Math.Min(1, 22 / bounds.Height) : scaleX;
+        using var transform = new Matrix(scaleX, 0, 0, scaleY,
+            (32 - bounds.Width * scaleX) / 2 - bounds.X * scaleX,
+            (32 - bounds.Height * scaleY) / 2 - bounds.Y * scaleY);
         path.Transform(transform);
         return path;
     }

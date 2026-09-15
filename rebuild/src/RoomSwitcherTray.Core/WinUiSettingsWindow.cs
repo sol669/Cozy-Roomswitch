@@ -164,7 +164,7 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         (true, "ScenarioDisplays") => "Scenario displays", (true, "ScenarioAudio") => "Scenario audio devices",
         (true, "Monitors") => "Monitors", (true, "AudioDevices") => "Audio devices",
         (true, "DeviceAlias") => "Name in Cozy Roomswitch", (true, "ScenarioName") => "Name the scenario",
-        (true, "ScenarioSettings") => "Scenario name and icon", (true, "Monitor") => "Monitor",
+        (true, "ScenarioSettings") => "Scenario name and icon", (true, "Monitor") => "Monitor", (true, "Resolution") => "Resolution",
         (true, "IncludeInHotkeyList") => "Add to hotkey list",
         (true, "Audio") => "Audio device", (true, "Volume") => "Volume",
         (true, "SetVolume") => "Set volume",
@@ -174,7 +174,7 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         (true, "Desktop") => "Computer", (true, "Television") => "Television",
         (true, "Sofa") => "Sofa", (true, "Gamepad") => "Gamepad",
         (true, "Close") => "Close", (true, "Save") => "Save", (true, "Delete") => "Delete",
-        (true, "FooterVersion") => "Cozy Roomswitch 1.0.4",
+        (true, "FooterVersion") => "Cozy Roomswitch 1.0.5",
         (false, "Settings") => "Настройки", (false, "Scenarios") => "Сценарии",
         (false, "General") => "Основные", (false, "Devices") => "Имена устройств",
         (false, "NewScenario") => "Новый сценарий", (false, "StartupScenario") => "Сценарий при запуске",
@@ -192,7 +192,7 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         (false, "ScenarioDisplays") => "Экраны сценария", (false, "ScenarioAudio") => "Аудиоустройства сценария",
         (false, "Monitors") => "Мониторы", (false, "AudioDevices") => "Аудиоустройства",
         (false, "DeviceAlias") => "Имя в Cozy Roomswitch", (false, "ScenarioName") => "Назовите сценарий",
-        (false, "ScenarioSettings") => "Имя и иконка сценария", (false, "Monitor") => "Монитор",
+        (false, "ScenarioSettings") => "Имя и иконка сценария", (false, "Monitor") => "Монитор", (false, "Resolution") => "Разрешение",
         (false, "IncludeInHotkeyList") => "Добавить в hotkey-список",
         (false, "Audio") => "Аудиоустройство", (false, "Volume") => "Громкость",
         (false, "SetVolume") => "Установить громкость",
@@ -202,7 +202,7 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         (false, "Desktop") => "Компьютер", (false, "Television") => "Телевизор",
         (false, "Sofa") => "Диван", (false, "Gamepad") => "Геймпад",
         (false, "Close") => "Закрыть", (false, "Save") => "Сохранить", (false, "Delete") => "Удалить",
-        (false, "FooterVersion") => "Cozy Roomswitch 1.0.4",
+        (false, "FooterVersion") => "Cozy Roomswitch 1.0.5",
         _ => key
     };
 
@@ -627,7 +627,7 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
 
         var iconPicker = new ScenarioIconPicker(_draft.Icon, English);
         panel.Children.Add(SettingRow(T("ScenarioIcon"), iconPicker));
-        TextBox letters = SettingsTextBox(new TextBox { Text = _draft.IconLetters, MaxLength = 2 });
+        TextBox letters = SettingsTextBox(new TextBox { Text = _draft.IconLetters, MaxLength = 3 });
         Border lettersRow = SettingRow(T("Letters"), letters);
         lettersRow.Visibility = _draft.Icon == ScenarioIcon.Letters ? Visibility.Visible : Visibility.Collapsed;
         panel.Children.Add(lettersRow);
@@ -651,13 +651,51 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
             UpdateFooterState();
         };
 
-        panel.Children.Add(HeaderCell(T("ScenarioDisplays")));
+        var displayHeader = new Grid { ColumnSpacing = 10, Margin = new Thickness(10, 0, 10, 0) };
+        displayHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(32) });
+        displayHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        displayHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        displayHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var displayNameHeader = new TextBlock { Text = English ? "Display" : "Экран", Opacity = .52,
+            VerticalAlignment = VerticalAlignment.Center };
+        var resolutionHeader = new TextBlock { Text = English ? "Resolution" : "Разрешение", Opacity = .52,
+            VerticalAlignment = VerticalAlignment.Center };
+        var scaleHeader = new TextBlock { Text = English ? "Scale" : "Масштаб", Opacity = .52,
+            VerticalAlignment = VerticalAlignment.Center };
+        var numberHeader = new TextBlock { Text = "№", Opacity = .52,
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        displayHeader.Children.Add(numberHeader);
+        Grid.SetColumn(displayNameHeader, 1); displayHeader.Children.Add(displayNameHeader);
+        Grid.SetColumn(resolutionHeader, 2); displayHeader.Children.Add(resolutionHeader);
+        Grid.SetColumn(scaleHeader, 3); displayHeader.Children.Add(scaleHeader);
+        panel.Children.Add(new Border { Height = 46, Child = displayHeader });
+
+        var displayRows = new StackPanel { Spacing = 8 };
         for (int index = 0; index < 4; index++)
         {
             int slot = index;
             ComboBox monitor = SettingsComboBox(new ComboBox { DisplayMemberPath = "Name", SelectedValuePath = "Id" });
+            monitor.Width = double.NaN;
             monitor.Tag = slot;
             BindMonitorBox(monitor, slot);
+            ComboBox resolution = SettingsComboBox(new ComboBox { DisplayMemberPath = "Name", SelectedValuePath = "Preset" });
+            resolution.Width = double.NaN;
+            IReadOnlyList<ResolutionChoice> resolutionChoices = ResolutionChoices();
+            resolution.ItemsSource = resolutionChoices;
+            string initialId = _draftMonitorSlots[slot] ?? string.Empty;
+            DisplayResolutionPreset initialPreset = string.IsNullOrWhiteSpace(initialId) ? DisplayResolutionPreset.KeepCurrent :
+                _draft.DisplayResolutionPresets.GetValueOrDefault(initialId, DisplayResolutionPreset.KeepCurrent);
+            resolution.SelectedItem = resolutionChoices.FirstOrDefault(item => item.Preset == initialPreset) ?? resolutionChoices[0];
+            resolution.IsEnabled = !string.IsNullOrWhiteSpace(initialId);
+
+            ComboBox scale = SettingsComboBox(new ComboBox { DisplayMemberPath = "Name" });
+            scale.Width = double.NaN;
+            IReadOnlyList<ScaleChoice> scaleChoices = ScaleChoices();
+            scale.ItemsSource = scaleChoices;
+            int? initialScale = string.IsNullOrWhiteSpace(initialId) ? null :
+                _draft.DisplayScalePercents.GetValueOrDefault(initialId);
+            scale.SelectedItem = scaleChoices.FirstOrDefault(item => item.Percent == initialScale) ?? scaleChoices[0];
+            scale.IsEnabled = !string.IsNullOrWhiteSpace(initialId);
             monitor.SelectionChanged += (_, _) =>
             {
                 if (_loading) return;
@@ -665,8 +703,38 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
                 CaptureMonitorSlots();
                 RefreshScenarioPagePreservingFocus();
             };
-            panel.Children.Add(SettingRow($"{T("Monitor")} {index + 1}", monitor));
+            resolution.SelectionChanged += (_, _) =>
+            {
+                if (_loading || _draft is null || string.IsNullOrWhiteSpace(_draftMonitorSlots[slot])) return;
+                DisplayResolutionPreset preset = (resolution.SelectedItem as ResolutionChoice)?.Preset
+                    ?? DisplayResolutionPreset.KeepCurrent;
+                string id = _draftMonitorSlots[slot];
+                if (preset == DisplayResolutionPreset.KeepCurrent) _draft.DisplayResolutionPresets.Remove(id);
+                else _draft.DisplayResolutionPresets[id] = preset;
+                UpdateFooterState();
+            };
+            scale.SelectionChanged += (_, _) =>
+            {
+                if (_loading || _draft is null || string.IsNullOrWhiteSpace(_draftMonitorSlots[slot])) return;
+                int? percent = (scale.SelectedItem as ScaleChoice)?.Percent;
+                string id = _draftMonitorSlots[slot];
+                if (percent.HasValue) _draft.DisplayScalePercents[id] = percent.Value;
+                else _draft.DisplayScalePercents.Remove(id);
+                UpdateFooterState();
+            };
+            var row = new Grid { ColumnSpacing = 10 };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(32) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.Children.Add(new TextBlock { Text = (index + 1).ToString(), VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center, Opacity = .7 });
+            Grid.SetColumn(monitor, 1); row.Children.Add(monitor);
+            Grid.SetColumn(resolution, 2); row.Children.Add(resolution);
+            Grid.SetColumn(scale, 3); row.Children.Add(scale);
+            displayRows.Children.Add(row);
         }
+        panel.Children.Add(DisplaySettingsGroup(displayRows));
 
         panel.Children.Add(HeaderCell(T("ScenarioAudio")));
         ComboBox audio = SettingsComboBox(new ComboBox { DisplayMemberPath = "Name", SelectedValuePath = "Id" });
@@ -754,7 +822,24 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
             .Where(id => !string.IsNullOrWhiteSpace(id))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+        foreach (string stale in _draft.DisplayResolutionPresets.Keys
+            .Where(id => !_draft.DisplayIds.Contains(id, StringComparer.OrdinalIgnoreCase)).ToArray())
+            _draft.DisplayResolutionPresets.Remove(stale);
+        foreach (string stale in _draft.DisplayScalePercents.Keys
+            .Where(id => !_draft.DisplayIds.Contains(id, StringComparer.OrdinalIgnoreCase)).ToArray())
+            _draft.DisplayScalePercents.Remove(stale);
     }
+
+    private IReadOnlyList<ResolutionChoice> ResolutionChoices() =>
+        [new(DisplayResolutionPreset.KeepCurrent, T("NoChange")),
+         new(DisplayResolutionPreset.UltraHd4K, "4K · 3840 × 2160"),
+         new(DisplayResolutionPreset.QuadHd2K, "2K · 2560 × 1440"),
+         new(DisplayResolutionPreset.FullHd1080, "1080p · 1920 × 1080"),
+         new(DisplayResolutionPreset.Hd720, "720p · 1280 × 720")];
+
+    private IReadOnlyList<ScaleChoice> ScaleChoices() =>
+        [new(null, T("NoChange")), new(100, "100%"), new(125, "125%"),
+         new(150, "150%"), new(175, "175%"), new(200, "200%")];
 
     private void RefreshScenarioPagePreservingFocus()
     {
@@ -967,6 +1052,21 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         var card = new Border { Child = content };
         ApplyControlStyle(card, "RoomSettingsCardStyle");
         return card;
+    }
+
+    private static Border DisplaySettingsGroup(StackPanel content)
+    {
+        var group = new Border
+        {
+            Child = content,
+            Height = double.NaN,
+            Padding = new Thickness(10),
+            MinHeight = 0
+        };
+        ApplyControlStyle(group, "RoomSettingsCardStyle");
+        group.Height = double.NaN;
+        group.Padding = new Thickness(10);
+        return group;
     }
 
     private static void ApplyControlStyle(FrameworkElement control, string resourceKey)
@@ -1478,11 +1578,15 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         left.VolumePercent == right.VolumePercent &&
         left.Icon == right.Icon &&
         left.IncludeInHotkeyList == right.IncludeInHotkeyList &&
+        left.DisplayResolutionPresets.OrderBy(item => item.Key).SequenceEqual(right.DisplayResolutionPresets.OrderBy(item => item.Key)) &&
+        left.DisplayScalePercents.OrderBy(item => item.Key).SequenceEqual(right.DisplayScalePercents.OrderBy(item => item.Key)) &&
         string.Equals(ScenarioDefinition.MakeIconLetters(left.IconLetters),
             ScenarioDefinition.MakeIconLetters(right.IconLetters), StringComparison.Ordinal);
 
     private static bool OperationallyEqual(ScenarioDefinition left, ScenarioDefinition? right) => right is not null &&
         left.DisplayIds.SequenceEqual(right.DisplayIds, StringComparer.OrdinalIgnoreCase) &&
+        left.DisplayResolutionPresets.OrderBy(item => item.Key).SequenceEqual(right.DisplayResolutionPresets.OrderBy(item => item.Key)) &&
+        left.DisplayScalePercents.OrderBy(item => item.Key).SequenceEqual(right.DisplayScalePercents.OrderBy(item => item.Key)) &&
         string.Equals(left.AudioDeviceId, right.AudioDeviceId, StringComparison.OrdinalIgnoreCase) &&
         left.VolumePercent == right.VolumePercent;
 
@@ -1529,5 +1633,7 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
     }
 
     private sealed record Choice(string Id, string Name);
+    private sealed record ResolutionChoice(DisplayResolutionPreset Preset, string Name);
+    private sealed record ScaleChoice(int? Percent, string Name);
     private sealed record StartupChoice(Guid? Id, string Name);
 }

@@ -53,6 +53,10 @@ public sealed class SettingsStore
         Current.ActiveScenario = 0;
         foreach (ScenarioDefinition scenario in Current.Scenarios)
         {
+            scenario.DisplayResolutionPresets = new Dictionary<string, DisplayResolutionPreset>(
+                scenario.DisplayResolutionPresets ?? [], StringComparer.OrdinalIgnoreCase);
+            scenario.DisplayScalePercents = new Dictionary<string, int>(
+                scenario.DisplayScalePercents ?? [], StringComparer.OrdinalIgnoreCase);
             scenario.IconLetters = ScenarioDefinition.MakeIconLetters(
                 string.IsNullOrWhiteSpace(scenario.IconLetters) ? scenario.Name : scenario.IconLetters);
         }

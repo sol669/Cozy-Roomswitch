@@ -11,7 +11,8 @@ internal static class TrayIconFactory
         ScenarioIcon icon = scenario?.Icon ?? ScenarioIcon.Desktop;
         string? letters = string.IsNullOrWhiteSpace(scenario?.IconLetters) ? scenario?.Name : scenario.IconLetters;
         using var bitmap = remote ? ScenarioArtwork.RenderRemote(color, 32) :
-            warning ? ScenarioArtwork.RenderWarning(color, 32) : ScenarioArtwork.Render(icon, letters, color, 32);
+            warning ? ScenarioArtwork.RenderWarning(color, 32) :
+            ScenarioArtwork.Render(icon, letters, color, 32, compactThreeLetters: true);
         return bitmap.GetHicon();
     }
 

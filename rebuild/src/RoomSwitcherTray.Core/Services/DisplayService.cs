@@ -200,6 +200,161 @@ public sealed class DisplayService
         throw new InvalidOperationException("Активный дисплей не найден.");
     }
 
+    public void ApplyDisplaySettings(
+        IReadOnlyDictionary<string, DisplayResolutionPreset> resolutions,
+        IReadOnlyDictionary<string, int> scales)
+    {
+        foreach ((string id, DisplayResolutionPreset preset) in resolutions)
+            if (preset != DisplayResolutionPreset.KeepCurrent)
+                SetResolution(id, preset);
+
+        foreach ((string id, int percent) in scales)
+            SetScale(id, percent);
+    }
+
+    public void SetScale(string displayId, int percent)
+    {
+        if (!DpiValues.Contains(percent)) throw new ArgumentOutOfRangeException(nameof(percent));
+        (DisplayNative.LUID adapterId, uint sourceId) = FindActiveSource(displayId);
+        DpiScaleInfo info = GetDpiScale(adapterId, sourceId);
+        int targetIndex = Array.IndexOf(DpiValues, percent);
+        int recommendedIndex = Array.IndexOf(DpiValues, info.Recommended);
+        if (targetIndex < 0 || recommendedIndex < 0 || percent < info.Minimum || percent > info.Maximum)
+            throw new InvalidOperationException($"Масштаб {percent}% недоступен для этого экрана.");
+        var request = new DisplayNative.SOURCE_DPI_SCALE_SET
+        {
+            header = new DisplayNative.DEVICE_INFO_HEADER
+            {
+                type = DisplayNative.DISPLAYCONFIG_DEVICE_INFO_SET_DPI_SCALE,
+                size = (uint)Marshal.SizeOf<DisplayNative.SOURCE_DPI_SCALE_SET>(),
+                adapterId = adapterId,
+                id = sourceId
+            },
+            scaleRel = targetIndex - recommendedIndex
+        };
+        if (Marshal.SizeOf<DisplayNative.SOURCE_DPI_SCALE_SET>() != 0x18)
+            throw new InvalidOperationException("Структура масштаба несовместима с этой версией Windows.");
+        int error = DisplayNative.DisplayConfigSetDeviceInfo(ref request);
+        if (error != 0) throw new Win32Exception(error, "Windows не удалось изменить масштаб.");
+    }
+
+    public int? GetScale(string displayId)
+    {
+        try
+        {
+            (DisplayNative.LUID adapterId, uint sourceId) = FindActiveSource(displayId);
+            return GetDpiScale(adapterId, sourceId).Current;
+        }
+        catch { return null; }
+    }
+
+    private static readonly int[] DpiValues = [100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500];
+
+    public IReadOnlyList<int> GetSupportedScales(string displayId)
+    {
+        try
+        {
+            (DisplayNative.LUID adapterId, uint sourceId) = FindActiveSource(displayId);
+            DpiScaleInfo info = GetDpiScale(adapterId, sourceId);
+            return [.. new[] { 100, 125, 150, 175, 200 }
+                .Where(percent => percent >= info.Minimum && percent <= info.Maximum)];
+        }
+        catch { return []; }
+    }
+
+    private static DpiScaleInfo GetDpiScale(DisplayNative.LUID adapterId, uint sourceId)
+    {
+        var request = new DisplayNative.SOURCE_DPI_SCALE_GET
+        {
+            header = new DisplayNative.DEVICE_INFO_HEADER
+            {
+                type = DisplayNative.DISPLAYCONFIG_DEVICE_INFO_GET_DPI_SCALE,
+                size = (uint)Marshal.SizeOf<DisplayNative.SOURCE_DPI_SCALE_GET>(),
+                adapterId = adapterId,
+                id = sourceId
+            }
+        };
+        if (Marshal.SizeOf<DisplayNative.SOURCE_DPI_SCALE_GET>() != 0x20)
+            throw new InvalidOperationException("Структура масштаба несовместима с этой версией Windows.");
+        int error = DisplayNative.DisplayConfigGetDeviceInfo(ref request);
+        if (error != 0) throw new Win32Exception(error, "Windows не удалось прочитать масштаб.");
+        int recommendedIndex = Math.Abs(request.minScaleRel);
+        int currentIndex = recommendedIndex + Math.Clamp(request.curScaleRel, request.minScaleRel, request.maxScaleRel);
+        int maximumIndex = recommendedIndex + request.maxScaleRel;
+        if (recommendedIndex < 0 || currentIndex < 0 || maximumIndex >= DpiValues.Length)
+            throw new InvalidOperationException("Windows вернула неизвестную шкалу масштаба.");
+        return new(DpiValues[0], DpiValues[maximumIndex], DpiValues[currentIndex], DpiValues[recommendedIndex]);
+    }
+
+    private static (DisplayNative.LUID AdapterId, uint SourceId) FindActiveSource(string displayId)
+    {
+        DisplayConfiguration configuration = QueryConfiguration(DisplayNative.QDC_ONLY_ACTIVE_PATHS);
+        foreach (DisplayNative.PATH_INFO path in configuration.Paths)
+        {
+            (string id, _, _) = GetIdentity(path.targetInfo.adapterId, path.targetInfo.id);
+            if (id.Equals(displayId, StringComparison.OrdinalIgnoreCase))
+                return (path.sourceInfo.adapterId, path.sourceInfo.id);
+        }
+        throw new InvalidOperationException("Активный дисплей не найден.");
+    }
+
+    private sealed record DpiScaleInfo(int Minimum, int Maximum, int Current, int Recommended);
+
+    public void SetResolution(string displayId, DisplayResolutionPreset preset)
+    {
+        (int width, int height) = DisplayResolution.Size(preset);
+        if (width == 0) return;
+        string? deviceName = GetActiveSourceName(displayId);
+        if (deviceName is null) throw new InvalidOperationException("Активный дисплей не найден.");
+        var chosen = new DisplayNative.DEVMODE { dmSize = (ushort)Marshal.SizeOf<DisplayNative.DEVMODE>() };
+        bool found = false;
+        for (int index = 0; index < 256; index++)
+        {
+            var mode = new DisplayNative.DEVMODE { dmSize = (ushort)Marshal.SizeOf<DisplayNative.DEVMODE>() };
+            if (!DisplayNative.EnumDisplaySettings(deviceName, index, ref mode)) break;
+            if (mode.dmPelsWidth != width || mode.dmPelsHeight != height) continue;
+            chosen = mode; found = true; break;
+        }
+        if (!found) throw new InvalidOperationException($"Дисплей не поддерживает {width} × {height}.");
+        int error = DisplayNative.ChangeDisplaySettingsEx(deviceName, ref chosen, nint.Zero, 0, nint.Zero);
+        if (error != 0) throw new Win32Exception(error, "Windows не удалось изменить разрешение.");
+    }
+
+    public IReadOnlyList<DisplayResolutionPreset> GetSupportedResolutionPresets(string displayId)
+    {
+        string? deviceName = GetActiveSourceName(displayId);
+        if (deviceName is null) return [];
+        var sizes = new HashSet<(int Width, int Height)>();
+        for (int index = 0; index < 256; index++)
+        {
+            var mode = new DisplayNative.DEVMODE { dmSize = (ushort)Marshal.SizeOf<DisplayNative.DEVMODE>() };
+            if (!DisplayNative.EnumDisplaySettings(deviceName, index, ref mode)) break;
+            sizes.Add(((int)mode.dmPelsWidth, (int)mode.dmPelsHeight));
+        }
+        return [.. DisplayResolution.Presets.Where(preset => sizes.Contains(DisplayResolution.Size(preset)))];
+    }
+
+    private static string? GetActiveSourceName(string displayId)
+    {
+        DisplayConfiguration configuration = QueryConfiguration(DisplayNative.QDC_ONLY_ACTIVE_PATHS);
+        foreach (DisplayNative.PATH_INFO path in configuration.Paths)
+        {
+            (string id, _, _) = GetIdentity(path.targetInfo.adapterId, path.targetInfo.id);
+            if (!id.Equals(displayId, StringComparison.OrdinalIgnoreCase)) continue;
+            var request = new DisplayNative.SOURCE_DEVICE_NAME
+            {
+                header = new DisplayNative.DEVICE_INFO_HEADER
+                {
+                    type = DisplayNative.DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
+                    size = (uint)Marshal.SizeOf<DisplayNative.SOURCE_DEVICE_NAME>(),
+                    adapterId = path.sourceInfo.adapterId, id = path.sourceInfo.id
+                }
+            };
+            return DisplayNative.DisplayConfigGetDeviceInfo(ref request) == 0 ? request.viewGdiDeviceName : null;
+        }
+        return null;
+    }
+
     private static DisplayNative.PATH_INFO PreparePath(DisplayNative.PATH_INFO path)
     {
         path.flags = DisplayNative.DISPLAYCONFIG_PATH_ACTIVE;

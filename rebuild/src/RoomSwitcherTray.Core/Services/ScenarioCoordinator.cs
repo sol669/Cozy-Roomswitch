@@ -4,6 +4,7 @@ public interface IScenarioDevices
 {
     Task<DeviceSnapshot> CaptureAsync();
     Task ApplyDisplaysAsync(IReadOnlyCollection<string> ids);
+    Task ApplyResolutionsAsync(ScenarioDefinition scenario);
     void ApplyAudio(AudioDevice device, int? volume);
 }
 
@@ -138,6 +139,8 @@ public class ScenarioCoordinator : IDisposable
             }
             if (!HasActiveRequestedDisplay(available))
                 throw new InvalidOperationException(english ? "No scenario display was activated" : "Не удалось включить экран сценария");
+            await _devices.ApplyResolutionsAsync(scenario);
+            await RefreshAsync();
             if (_disposed) return new(false, "");
             _settings().ActiveScenarioId = scenario.Id;
             SaveSafely();

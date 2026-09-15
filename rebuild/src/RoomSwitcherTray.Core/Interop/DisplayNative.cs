@@ -11,6 +11,10 @@ internal static class DisplayNative
     internal const uint DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE = 10;
     internal const uint DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO_2 = 15;
     internal const uint DISPLAYCONFIG_DEVICE_INFO_SET_HDR_STATE = 16;
+    internal const uint DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME = 1;
+    internal const int ENUM_CURRENT_SETTINGS = -1;
+    internal const uint DISPLAYCONFIG_DEVICE_INFO_GET_DPI_SCALE = unchecked((uint)-3);
+    internal const uint DISPLAYCONFIG_DEVICE_INFO_SET_DPI_SCALE = unchecked((uint)-4);
     internal const uint DISPLAYCONFIG_PATH_ACTIVE = 0x00000001;
     internal const uint DISPLAYCONFIG_PATH_MODE_IDX_INVALID = 0xFFFFFFFF;
     internal const uint SDC_TOPOLOGY_SUPPLIED = 0x00000010;
@@ -124,6 +128,45 @@ internal static class DisplayNative
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string monitorDevicePath;
     }
 
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    internal struct SOURCE_DEVICE_NAME
+    {
+        public DEVICE_INFO_HEADER header;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string viewGdiDeviceName;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    internal struct DEVMODE
+    {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmDeviceName;
+        public ushort dmSpecVersion, dmDriverVersion, dmSize, dmDriverExtra;
+        public uint dmFields;
+        public int dmPositionX, dmPositionY;
+        public uint dmDisplayOrientation, dmDisplayFixedOutput;
+        public short dmColor, dmDuplex, dmYResolution, dmTTOption, dmCollate;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmFormName;
+        public ushort dmLogPixels;
+        public uint dmBitsPerPel, dmPelsWidth, dmPelsHeight, dmDisplayFlags, dmDisplayFrequency,
+            dmICMMethod, dmICMIntent, dmMediaType, dmDitherType, dmReserved1, dmReserved2,
+            dmPanningWidth, dmPanningHeight;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct SOURCE_DPI_SCALE_GET
+    {
+        public DEVICE_INFO_HEADER header;
+        public int minScaleRel;
+        public int curScaleRel;
+        public int maxScaleRel;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct SOURCE_DPI_SCALE_SET
+    {
+        public DEVICE_INFO_HEADER header;
+        public int scaleRel;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     internal struct ADVANCED_COLOR_INFO
     {
@@ -172,6 +215,10 @@ internal static class DisplayNative
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     internal static extern int DisplayConfigGetDeviceInfo(ref TARGET_DEVICE_NAME request);
     [DllImport("user32.dll")]
+    internal static extern int DisplayConfigGetDeviceInfo(ref SOURCE_DEVICE_NAME request);
+    [DllImport("user32.dll")]
+    internal static extern int DisplayConfigGetDeviceInfo(ref SOURCE_DPI_SCALE_GET request);
+    [DllImport("user32.dll")]
     internal static extern int DisplayConfigGetDeviceInfo(ref ADVANCED_COLOR_INFO request);
     [DllImport("user32.dll")]
     internal static extern int DisplayConfigGetDeviceInfo(ref ADVANCED_COLOR_INFO_2 request);
@@ -179,4 +226,12 @@ internal static class DisplayNative
     internal static extern int DisplayConfigSetDeviceInfo(ref SET_ADVANCED_COLOR_STATE request);
     [DllImport("user32.dll")]
     internal static extern int DisplayConfigSetDeviceInfo(ref SET_HDR_STATE request);
+    [DllImport("user32.dll")]
+    internal static extern int DisplayConfigSetDeviceInfo(ref SOURCE_DPI_SCALE_SET request);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool EnumDisplaySettings(string deviceName, int modeNum, ref DEVMODE mode);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    internal static extern int ChangeDisplaySettingsEx(string deviceName, ref DEVMODE mode,
+        nint hwnd, uint flags, nint lParam);
 }

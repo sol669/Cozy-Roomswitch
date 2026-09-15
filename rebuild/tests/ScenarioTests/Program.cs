@@ -487,6 +487,7 @@ sealed class FakeDevices(DeviceSnapshot current) : IScenarioDevices
             item with { IsActive = ids.Contains(item.Id) && item.IsAvailable }).ToArray() };
         return Task.CompletedTask;
     }
+    public Task ApplyResolutionsAsync(ScenarioDefinition scenario) => Task.CompletedTask;
     public void ApplyAudio(AudioDevice device, int? volume)
     {
         AudioCalls.Add((device.Id, volume));

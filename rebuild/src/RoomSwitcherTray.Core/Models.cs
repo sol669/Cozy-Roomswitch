@@ -16,6 +16,9 @@ public sealed class ScenarioDefinition
     // Existing settings predate this flag, so the default deliberately preserves
     // the old behavior: every scenario participates in the hotkey cycle.
     public bool IncludeInHotkeyList { get; set; } = true;
+    // Per-display overrides. Missing entries deliberately mean "do not change".
+    public Dictionary<string, DisplayResolutionPreset> DisplayResolutionPresets { get; set; } = [];
+    public Dictionary<string, int> DisplayScalePercents { get; set; } = [];
 
     [JsonIgnore]
     public bool IsComplete =>
@@ -34,18 +37,45 @@ public sealed class ScenarioDefinition
         VolumePercent = VolumePercent,
         Icon = Icon,
         IconLetters = IconLetters,
-        IncludeInHotkeyList = IncludeInHotkeyList
+        IncludeInHotkeyList = IncludeInHotkeyList,
+        DisplayResolutionPresets = new Dictionary<string, DisplayResolutionPreset>(DisplayResolutionPresets, StringComparer.OrdinalIgnoreCase),
+        DisplayScalePercents = new Dictionary<string, int>(DisplayScalePercents, StringComparer.OrdinalIgnoreCase)
     };
 
     public static string MakeIconLetters(string? value)
     {
         string letters = new((value ?? string.Empty)
-            .Where(char.IsLetter)
-            .Take(2)
+            .Where(char.IsLetterOrDigit)
+            .Take(3)
             .Select(char.ToUpperInvariant)
             .ToArray());
         return letters;
     }
+}
+
+public enum DisplayResolutionPreset
+{
+    KeepCurrent = 0,
+    UltraHd4K = 1,
+    QuadHd2K = 2,
+    FullHd1080 = 3,
+    Hd720 = 4
+}
+
+public static class DisplayResolution
+{
+    public static readonly IReadOnlyList<DisplayResolutionPreset> Presets =
+        [DisplayResolutionPreset.UltraHd4K, DisplayResolutionPreset.QuadHd2K,
+         DisplayResolutionPreset.FullHd1080, DisplayResolutionPreset.Hd720];
+
+    public static (int Width, int Height) Size(DisplayResolutionPreset preset) => preset switch
+    {
+        DisplayResolutionPreset.UltraHd4K => (3840, 2160),
+        DisplayResolutionPreset.QuadHd2K => (2560, 1440),
+        DisplayResolutionPreset.FullHd1080 => (1920, 1080),
+        DisplayResolutionPreset.Hd720 => (1280, 720),
+        _ => (0, 0)
+    };
 }
 
 public enum StartupScenarioMode
