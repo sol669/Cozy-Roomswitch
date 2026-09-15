@@ -28,10 +28,6 @@
   <ItemGroup>
     <EmbeddedResource Include="Assets\ScenarioIcons\**\*.png" />
     <Content Include="Assets\AppIcon\RoomSwitcher.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <!-- Explicitly publish the app PRI alongside the renamed executable.
-         Without it, unpackaged installs lose application XAML styles. -->
-    <Content Include="$(OutputPath)CozyRoomswitch.pri" Link="CozyRoomswitch.pri"
-             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <!-- Avoid the umbrella package: Cozy Roomswitch does not need its
