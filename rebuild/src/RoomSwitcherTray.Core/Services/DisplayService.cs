@@ -306,16 +306,29 @@ public sealed class DisplayService
         if (width == 0) return;
         string? deviceName = GetActiveSourceName(displayId);
         if (deviceName is null) throw new InvalidOperationException("Активный дисплей не найден.");
-        var chosen = new DisplayNative.DEVMODE { dmSize = (ushort)Marshal.SizeOf<DisplayNative.DEVMODE>() };
-        bool found = false;
+
+        // Match Win+P behaviour: changing a scenario must not silently change the
+        // monitor refresh rate.  EnumDisplaySettings returns many modes with the
+        // same dimensions (often 24 Hz first on TVs), so selecting the first one
+        // makes a 60 Hz television fall back to 24 Hz on every scenario apply.
+        var current = new DisplayNative.DEVMODE { dmSize = (ushort)Marshal.SizeOf<DisplayNative.DEVMODE>() };
+        bool hasCurrent = DisplayNative.EnumDisplaySettings(
+            deviceName, DisplayNative.ENUM_CURRENT_SETTINGS, ref current);
+        var candidates = new List<DisplayNative.DEVMODE>();
         for (int index = 0; index < 256; index++)
         {
             var mode = new DisplayNative.DEVMODE { dmSize = (ushort)Marshal.SizeOf<DisplayNative.DEVMODE>() };
             if (!DisplayNative.EnumDisplaySettings(deviceName, index, ref mode)) break;
             if (mode.dmPelsWidth != width || mode.dmPelsHeight != height) continue;
-            chosen = mode; found = true; break;
+            candidates.Add(mode);
         }
-        if (!found) throw new InvalidOperationException($"Дисплей не поддерживает {width} × {height}.");
+        if (candidates.Count == 0) throw new InvalidOperationException($"Дисплей не поддерживает {width} × {height}.");
+
+        uint preferredFrequency = hasCurrent ? current.dmDisplayFrequency : 0;
+        DisplayNative.DEVMODE chosen = preferredFrequency > 0
+            ? candidates.OrderBy(mode => Math.Abs((long)mode.dmDisplayFrequency - preferredFrequency))
+                .ThenByDescending(mode => mode.dmDisplayFrequency).First()
+            : candidates.OrderByDescending(mode => mode.dmDisplayFrequency).First();
         int error = DisplayNative.ChangeDisplaySettingsEx(deviceName, ref chosen, nint.Zero, 0, nint.Zero);
         if (error != 0) throw new Win32Exception(error, "Windows не удалось изменить разрешение.");
     }
