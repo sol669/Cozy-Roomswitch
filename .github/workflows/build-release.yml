@@ -107,4 +107,4 @@ jobs:
             release/Cozy-Roomswitch-Setup-v${{ env.APP_VERSION }}.exe
             release/Cozy-Roomswitch-Setup-Offline-v${{ env.APP_VERSION }}.exe
           fail_on_unmatched_files: true
-          overwrite_files: false
+          overwrite_files: true
