@@ -415,8 +415,31 @@ public sealed class TrayService : IDisposable
         try
         {
             await Task.Run(() => App.Displays.SetResolution(display.Id, preset));
-            ShowNotification($"Разрешение для «{display.Name}»: {ResolutionLabel(preset)}.", true);
             await _scenarios.RefreshAsync();
+            int? automaticScale = _settings.Current.AutoScaleOnResolutionChange
+                ? DisplayResolution.RecommendedScale(preset) : null;
+            if (!automaticScale.HasValue)
+            {
+                ShowNotification($"Разрешение для «{display.Name}»: {ResolutionLabel(preset)}.", true);
+                return;
+            }
+
+            // Windows may accept the new path before its DPI capabilities are ready.
+            // This bounded wait avoids sending a scale request to the old mode.
+            await Task.Delay(500);
+            try
+            {
+                await Task.Run(() => App.Displays.SetScale(display.Id, automaticScale.Value));
+                await _scenarios.RefreshAsync();
+                ShowNotification($"Разрешение для «{display.Name}»: {ResolutionLabel(preset)} · масштаб {automaticScale.Value}%.", true);
+            }
+            catch (Exception scaleError)
+            {
+                SettingsStore.Log(scaleError);
+                int? currentScale = await Task.Run(() => App.Displays.GetScale(display.Id));
+                string retained = currentScale.HasValue ? $" Оставлен текущий масштаб {currentScale.Value}%." : string.Empty;
+                ShowNotification($"Не удалось применить масштаб {automaticScale.Value}% для «{display.Name}».{retained}", false, force: true);
+            }
         }
         catch (Exception ex)
         {
@@ -500,15 +523,26 @@ public sealed class TrayService : IDisposable
     private ScenarioDefinition? GetActiveScenario() => _settings.Current.ActiveScenarioId is Guid id
         ? _settings.Current.Scenarios.FirstOrDefault(scenario => scenario.Id == id) : null;
 
-    private async Task ApplyAsync(Guid scenarioId)
+    private async Task<ApplyResult> ApplyAsync(Guid scenarioId)
     {
-        if (IsRemoteSession || _disposed) return;
-        await _scenarios.ApplyAsync(scenarioId);
+        if (IsRemoteSession || _disposed) return new(false, "");
+        ApplyResult result = await _scenarios.ApplyAsync(scenarioId);
+        if (!string.IsNullOrWhiteSpace(result.Message)) ShowNotification(result.Message, result.Success, force: !result.Success);
         // Persistent monochrome warning + tooltip replace repeated balloon errors.
         Refresh();
+        return result;
     }
 
-    internal Task ApplyScenarioAsync(Guid scenarioId) => ApplyAsync(scenarioId);
+    internal Task<ApplyResult> ApplyScenarioAsync(Guid scenarioId) => ApplyAsync(scenarioId);
+
+    internal async Task<ApplyResult> ApplyScenarioDraftAsync(ScenarioDefinition scenario)
+    {
+        if (IsRemoteSession || _disposed) return new(false, "");
+        ApplyResult result = await _scenarios.ApplyDraftAsync(scenario);
+        if (!string.IsNullOrWhiteSpace(result.Message)) ShowNotification(result.Message, result.Success, force: !result.Success);
+        Refresh();
+        return result;
+    }
 
     internal bool TryUpdateHotKey(HotKeyDefinition hotKey, out string error)
     {
@@ -665,8 +699,9 @@ public sealed class TrayService : IDisposable
         _ => $"Клавиша {key}"
     };
 
-    private void ShowNotification(string message, bool success)
+    private void ShowNotification(string message, bool success, bool force = false)
     {
+        if (!force && !_settings.Current.EnableNotifications) return;
         _notifyData.uFlags = TrayNative.NIF_INFO;
         _notifyData.szInfoTitle = "Cozy Roomswitch";
         _notifyData.szInfo = message;

@@ -9,6 +9,8 @@ public sealed class SettingsStore
     // The installer exposes only this Data folder as writable and removes it on uninstall.
     private static readonly string Folder = Path.Combine(AppContext.BaseDirectory, "Data");
     private static readonly string FilePath = Path.Combine(Folder, "settings.json");
+    private const long MaximumLogBytes = 512 * 1024;
+    private const long RetainedLogBytes = 256 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     public AppSettings Current { get; private set; } = new();
@@ -19,9 +21,14 @@ public sealed class SettingsStore
     {
         try
         {
-            Current = File.Exists(FilePath)
-                ? JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath), JsonOptions) ?? new()
+            string? json = File.Exists(FilePath) ? File.ReadAllText(FilePath) : null;
+            Current = json is not null
+                ? JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new()
                 : new();
+            // Existing settings files predate the opt-in setting.  Treat an absent
+            // value as the new default instead of silently turning notifications off.
+            if (json is not null && !HasProperty(json, nameof(AppSettings.EnableNotifications)))
+                Current.EnableNotifications = true;
             UpgradeLegacySettings();
             if (!IsConfigured)
                 Current.ActiveScenarioId = null;
@@ -31,6 +38,14 @@ public sealed class SettingsStore
             Log(ex);
             Current = new();
         }
+    }
+
+    private static bool HasProperty(string json, string propertyName)
+    {
+        using JsonDocument document = JsonDocument.Parse(json);
+        return document.RootElement.ValueKind == JsonValueKind.Object &&
+            document.RootElement.EnumerateObject().Any(property =>
+                string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase));
     }
 
     private void UpgradeLegacySettings()
@@ -77,12 +92,36 @@ public sealed class SettingsStore
         try
         {
             Directory.CreateDirectory(Folder);
-            File.AppendAllText(Path.Combine(Folder, "error.log"),
+            string logPath = Path.Combine(Folder, "error.log");
+            TrimLogIfNeeded(logPath);
+            File.AppendAllText(logPath,
                 $"[{DateTime.Now:O}] {exception}\r\n\r\n");
         }
         catch
         {
             Debug.WriteLine(exception);
+        }
+    }
+
+    private static void TrimLogIfNeeded(string logPath)
+    {
+        var info = new FileInfo(logPath);
+        if (!info.Exists || info.Length <= MaximumLogBytes) return;
+
+        string temporaryPath = logPath + ".trim";
+        try
+        {
+            using (var source = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (var destination = new FileStream(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                source.Seek(-RetainedLogBytes, SeekOrigin.End);
+                source.CopyTo(destination);
+            }
+            File.Move(temporaryPath, logPath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
         }
     }
 }

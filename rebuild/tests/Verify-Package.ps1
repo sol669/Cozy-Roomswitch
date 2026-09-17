@@ -5,6 +5,8 @@ foreach ($name in @('CozyRoomswitch.exe','CozyRoomswitch.dll','CozyRoomswitch.de
     $file = Get-Item -LiteralPath (Join-Path $root $name)
     if ($file.Length -eq 0) { throw "Empty required file: $name" }
 }
+$winUiResources = Get-Item -LiteralPath (Join-Path $root 'CozyRoomswitch.pri')
+if ($winUiResources.Length -lt 1MB) { throw 'WinUI resource package is unexpectedly small.' }
 $config = Get-Content -Raw -LiteralPath (Join-Path $root 'CozyRoomswitch.runtimeconfig.json') | ConvertFrom-Json
 if ($SelfContained) {
     foreach ($name in @('coreclr.dll','hostfxr.dll','Microsoft.UI.Xaml.dll')) {

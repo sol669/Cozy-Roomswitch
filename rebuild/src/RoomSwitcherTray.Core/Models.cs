@@ -76,6 +76,16 @@ public static class DisplayResolution
         DisplayResolutionPreset.Hd720 => (1280, 720),
         _ => (0, 0)
     };
+
+    // Used both for quick tray changes and as the initial scenario value.
+    // A scenario may still deliberately override this choice afterwards.
+    public static int? RecommendedScale(DisplayResolutionPreset preset) => preset switch
+    {
+        DisplayResolutionPreset.UltraHd4K => 200,
+        DisplayResolutionPreset.QuadHd2K => 125,
+        DisplayResolutionPreset.FullHd1080 or DisplayResolutionPreset.Hd720 => 100,
+        _ => null
+    };
 }
 
 public enum StartupScenarioMode
@@ -115,6 +125,12 @@ public sealed class AppSettings
     // never appears in the local device-name editor.
     public bool AdaptiveRemoteSession { get; set; }
     public int RemoteSessionVolumePercent { get; set; } = 100;
+    // Tray actions are normally confirmed through Windows notifications.  Keep this
+    // opt-out global: it is intentionally independent of individual scenarios.
+    public bool EnableNotifications { get; set; } = true;
+    // Resolution picked from the tray may restore a sensible DPI scale.  Scenario
+    // scale values remain explicit and are never overridden by this preference.
+    public bool AutoScaleOnResolutionChange { get; set; }
     public AppThemeMode Theme { get; set; }
     public AppLanguage Language { get; set; }
 

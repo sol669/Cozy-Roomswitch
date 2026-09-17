@@ -39,10 +39,11 @@ $flat = $xaml.SelectSingleNode('//p:Style[@x:Key="RoomPaletteButtonStyle"]', $na
 if ($null -eq $flat -or $flat.SelectSingleNode('p:Setter[@Property="Background"]', $namespaces).Value -ne 'Transparent') {
     throw 'Palette icons must not have persistent tiles.'
 }
-if ($window -match 'VolumeChoices|0% — mute' -or
+if ($window -match 'StartupVolumeInput|0% — mute' -or
     -not $window.Contains('new[] { T("NoChange"), T("SetVolume") }') -or
-    -not $window.Contains('percentRow.Visibility = input.Enabled ? Visibility.Visible : Visibility.Collapsed') -or
-    -not $window.Contains('_volumeInput.IsValid') -or -not $window.Contains('VolumePercent = null')) {
-    throw 'Two-mode, validated startup-volume UI/default contract is missing.'
+    -not $window.Contains('VolumeSlider') -or
+    -not $window.Contains('Minimum = 0') -or -not $window.Contains('Maximum = 100') -or
+    -not $window.Contains('VolumePercent = null')) {
+    throw 'Two-mode slider-based startup-volume UI/default contract is missing.'
 }
-"PASS: stable selection, compact native title, aligned headers, no settings tooltips, flat rounded palette, Letters last, two-mode volume; scrollable full height $height logical pixels."
+"PASS: stable selection, compact native title, aligned headers, no settings tooltips, flat rounded palette, Letters last, two-mode volume slider; scrollable full height $height logical pixels."

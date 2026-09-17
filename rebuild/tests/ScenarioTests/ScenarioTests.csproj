@@ -9,7 +9,6 @@
     <Compile Include="../../src/RoomSwitcherTray.Core/Services/DeviceIdentity.cs" Link="DeviceIdentity.cs" />
     <Compile Include="../../src/RoomSwitcherTray.Core/Services/AudioEndpointMigration.cs" Link="AudioEndpointMigration.cs" />
     <Compile Include="../../src/RoomSwitcherTray.Core/Services/UiText.cs" Link="UiText.cs" />
-    <Compile Include="../../src/RoomSwitcherTray.Core/StartupVolumeInput.cs" Link="StartupVolumeInput.cs" />
     <Compile Include="../../src/RoomSwitcherTray.Core/Services/ScenarioPolicy.cs" Link="ScenarioPolicy.cs" />
     <Compile Include="../../src/RoomSwitcherTray.Core/Services/ScenarioCoordinator.cs" Link="ScenarioCoordinator.cs" />
   </ItemGroup>

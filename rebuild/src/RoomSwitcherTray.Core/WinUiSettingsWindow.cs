@@ -35,6 +35,7 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
     private StackPanel? _scenarioNavPanel;
     private Button? _saveButton;
     private Button? _deleteButton;
+    private Button? _applyButton;
     private TextBlock? _hotKeyTitle;
     private TextBlock? _hotKeyHint;
     private Button? _hotKeyCaptureButton;
@@ -45,7 +46,6 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
     private ComboBox? _startupChoiceBox;
     private ScenarioDefinition? _draft;
     private ScenarioDefinition? _scenarioBaseline;
-    private StartupVolumeInput _volumeInput = new(null);
     private string[] _draftMonitorSlots = new string[4];
     private string _currentPage = "general";
     private bool _draftIsNew;
@@ -59,7 +59,9 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
     private bool _pendingStartWithWindows;
     private bool _pendingAdaptiveRemoteSession;
     private int _pendingRemoteVolume;
-    private StartupVolumeInput _remoteVolumeInput = new(100);
+    private bool _pendingEnableNotifications;
+    private bool _pendingAutoScaleOnResolutionChange;
+    private ScenarioDefinition? _appliedScenarioBaseline;
     private StartupScenarioMode _pendingStartupMode;
     private Guid? _pendingStartupScenarioId;
     private AppThemeMode _pendingTheme;
@@ -74,7 +76,6 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         _tray = tray;
         _scenarios = settings.Current.Scenarios.Select(item => item.Clone()).ToList();
         ResetPendingGeneral();
-        ResetPendingRemote();
         ResetPendingAliases();
         _root.IsTabStop = true;
         _pageHost.HorizontalContentAlignment = HorizontalAlignment.Stretch;
@@ -156,9 +157,11 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         (true, "NewScenario") => "New scenario", (true, "StartupScenario") => "Scenario at startup",
         (true, "LastLoaded") => "Last loaded", (true, "Hotkey") => "Hotkey",
         (true, "Change") => "Change…", (true, "Autostart") => "Autostart",
+        (true, "EnableNotifications") => "Windows notifications",
+        (true, "AutoScaleOnResolutionChange") => "Adapt scale when changing resolution",
         (true, "Theme") => "Theme", (true, "Language") => "Language",
         (true, "Behavior") => "Behavior", (true, "System") => "System",
-        (true, "AdaptiveRemoteSession") => "Adaptive remote session",
+        (true, "AdaptiveRemoteSession") => "Detect remote session",
         (true, "RemoteSession") => "Remote session", (true, "RemoteAudioVolume") => "Remote audio volume",
         (true, "DisplaySettings") => "Display settings", (true, "SoundSettings") => "Sound settings",
         (true, "Open") => "Open…",
@@ -177,16 +180,18 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         (true, "None") => "None", (true, "NoChange") => "Don't change",
         (true, "Desktop") => "Computer", (true, "Television") => "Television",
         (true, "Sofa") => "Sofa", (true, "Gamepad") => "Gamepad",
-        (true, "Close") => "Close", (true, "Save") => "Save", (true, "Delete") => "Delete",
-        (true, "FooterVersion") => "Cozy Roomswitch 1.0.5",
+        (true, "Close") => "Close", (true, "Save") => "Save", (true, "Delete") => "Delete", (true, "Apply") => "Apply",
+        (true, "FooterVersion") => "Cozy Roomswitch 1.0.6",
         (false, "Settings") => "Настройки", (false, "Scenarios") => "Сценарии",
         (false, "General") => "Основные", (false, "Devices") => "Имена устройств",
         (false, "NewScenario") => "Новый сценарий", (false, "StartupScenario") => "Сценарий при запуске",
         (false, "LastLoaded") => "Последний загруженный", (false, "Hotkey") => "Горячая клавиша",
         (false, "Change") => "Изменить…", (false, "Autostart") => "Автозапуск",
+        (false, "EnableNotifications") => "Уведомления Windows",
+        (false, "AutoScaleOnResolutionChange") => "Адаптировать масштаб при смене разрешения",
         (false, "Theme") => "Тема", (false, "Language") => "Язык",
         (false, "Behavior") => "Поведение", (false, "System") => "Система",
-        (false, "AdaptiveRemoteSession") => "Адаптивный удаленный сеанс",
+        (false, "AdaptiveRemoteSession") => "Определять удалённый сеанс",
         (false, "RemoteSession") => "Удаленный сеанс", (false, "RemoteAudioVolume") => "Громкость удаленного аудио",
         (false, "DisplaySettings") => "Параметры экрана", (false, "SoundSettings") => "Параметры звука",
         (false, "Open") => "Открыть…",
@@ -205,8 +210,8 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         (false, "None") => "Нет", (false, "NoChange") => "Не менять",
         (false, "Desktop") => "Компьютер", (false, "Television") => "Телевизор",
         (false, "Sofa") => "Диван", (false, "Gamepad") => "Геймпад",
-        (false, "Close") => "Закрыть", (false, "Save") => "Сохранить", (false, "Delete") => "Удалить",
-        (false, "FooterVersion") => "Cozy Roomswitch 1.0.5",
+        (false, "Close") => "Закрыть", (false, "Save") => "Сохранить", (false, "Delete") => "Удалить", (false, "Apply") => "Применить",
+        (false, "FooterVersion") => "Cozy Roomswitch 1.0.6",
         _ => key
     };
 
@@ -248,12 +253,15 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         footerInfo.Children.Add(sourceLine);
         footer.Children.Add(footerInfo);
 
+        var scenarioActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Margin = new Thickness(24, 0, 0, 0) };
         _deleteButton = StyledButton(T("Delete"), "RoomDefaultButtonStyle", 110);
-        _deleteButton.HorizontalAlignment = HorizontalAlignment.Left;
-        _deleteButton.Margin = new Thickness(24, 0, 0, 0);
         _deleteButton.Click += async (_, _) => await DeleteScenarioAsync();
-        Grid.SetColumn(_deleteButton, 1);
-        footer.Children.Add(_deleteButton);
+        _applyButton = StyledButton(T("Apply"), "RoomAccentButtonStyle", 110);
+        _applyButton.Click += async (_, _) => await ApplyScenarioFromEditorAsync();
+        scenarioActions.Children.Add(_deleteButton);
+        scenarioActions.Children.Add(_applyButton);
+        Grid.SetColumn(scenarioActions, 1);
+        footer.Children.Add(scenarioActions);
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
         Button close = StyledButton(T("Close"), "RoomDefaultButtonStyle", 110);
@@ -337,25 +345,8 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         if (_scenarioNavPanel is null) return;
         foreach (string key in _navButtons.Keys.Where(key => key.StartsWith("scenario:", StringComparison.Ordinal)).ToList())
             _navButtons.Remove(key);
-        _navButtons.Remove("remote");
         _navButtons.Remove("new");
         _scenarioNavPanel.Children.Clear();
-        if (_settings.Current.AdaptiveRemoteSession)
-        {
-            Button remote = NavButton(T("RemoteSession"), "remote");
-            remote.HorizontalContentAlignment = HorizontalAlignment.Stretch;
-            var remoteContent = new Grid { ColumnSpacing = 12 };
-            remoteContent.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            remoteContent.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
-            remoteContent.Children.Add(new TextBlock { Text = T("RemoteSession"), VerticalAlignment = VerticalAlignment.Center });
-            var remoteIcon = new ScenarioIconView { Remote = true, VerticalAlignment = VerticalAlignment.Center };
-            remoteIcon.SetBinding(Control.ForegroundProperty, new Binding { Source = remote, Path = new PropertyPath(nameof(Control.Foreground)) });
-            Grid.SetColumn(remoteIcon, 1);
-            remoteContent.Children.Add(remoteIcon);
-            remote.Content = remoteContent;
-            AutomationProperties.SetName(remote, T("RemoteSession"));
-            _scenarioNavPanel.Children.Add(remote);
-        }
         for (int index = 0; index < _scenarios.Count; index++)
         {
             ScenarioDefinition scenario = _scenarios[index];
@@ -455,7 +446,6 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         _capturingHotKey = false;
         if (page == "general") ResetPendingGeneral();
         else if (page == "devices") ResetPendingAliases();
-        else if (page == "remote") ResetPendingRemote();
         else if (page == "new") CreateNewDraft();
         else if (TryScenarioId(page, out Guid id)) LoadScenarioDraft(id);
         ShowCurrentPage();
@@ -469,7 +459,6 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         _pageHost.Content = _currentPage switch
         {
             "devices" => BuildDevicesPage(),
-            "remote" => BuildRemotePage(),
             "new" => BuildScenarioPage(),
             _ when _currentPage.StartsWith("scenario:", StringComparison.Ordinal) => BuildScenarioPage(),
             _ => BuildGeneralPage()
@@ -516,6 +505,10 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         panel.Children.Add(SettingRow(_hotKeyTitle, _hotKeyCaptureButton));
         _hotKeyHint = new TextBlock { Opacity = .68, Margin = new Thickness(14, 0, 0, 0), Visibility = Visibility.Collapsed };
         panel.Children.Add(_hotKeyHint);
+        panel.Children.Add(TogglePreferenceRow(T("EnableNotifications"), _pendingEnableNotifications,
+            value => { _pendingEnableNotifications = value; UpdateFooterState(); }));
+        panel.Children.Add(TogglePreferenceRow(T("AutoScaleOnResolutionChange"), _pendingAutoScaleOnResolutionChange,
+            value => { _pendingAutoScaleOnResolutionChange = value; UpdateFooterState(); }));
 
         _adaptiveRemoteToggle = new ToggleSwitch
         {
@@ -523,15 +516,26 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
             OffContent = string.Empty, OnContent = string.Empty, VerticalAlignment = VerticalAlignment.Center
         };
         _adaptiveRemoteState = new TextBlock { MinWidth = 58, TextAlignment = TextAlignment.Right, Opacity = .72, VerticalAlignment = VerticalAlignment.Center };
+        Grid? remoteVolumeRow = null;
         _adaptiveRemoteToggle.Toggled += (_, _) =>
         {
             UpdateAdaptiveRemoteState();
             if (_loading) return;
             _pendingAdaptiveRemoteSession = _adaptiveRemoteToggle.IsOn;
+            if (remoteVolumeRow is not null)
+                remoteVolumeRow.Visibility = _pendingAdaptiveRemoteSession ? Visibility.Visible : Visibility.Collapsed;
             UpdateFooterState();
         };
         UpdateAdaptiveRemoteState();
-        panel.Children.Add(ToggleSettingRow(T("AdaptiveRemoteSession"), _adaptiveRemoteState, _adaptiveRemoteToggle));
+        Grid remoteSessionRow = ToggleSettingRowGrid(T("AdaptiveRemoteSession"), _adaptiveRemoteState, _adaptiveRemoteToggle, grouped: true);
+        remoteVolumeRow = SettingRowGrid(T("RemoteAudioVolume"), VolumeSlider(_pendingRemoteVolume, value =>
+        {
+            if (_loading) return;
+            _pendingRemoteVolume = value;
+            UpdateFooterState();
+        }, T("RemoteAudioVolume")), grouped: true);
+        remoteVolumeRow.Visibility = _pendingAdaptiveRemoteSession ? Visibility.Visible : Visibility.Collapsed;
+        panel.Children.Add(GroupedSettingsCard(remoteSessionRow, remoteVolumeRow));
 
         panel.Children.Add(HeaderCell(T("System")));
 
@@ -586,27 +590,6 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         panel.Children.Add(HeaderCell(T("WindowsSettings")));
         panel.Children.Add(SystemSettingsRow(T("DisplaySettings"), "ms-settings:display"));
         panel.Children.Add(SystemSettingsRow(T("SoundSettings"), "ms-settings:sound"));
-        FinishInitialLoading(panel);
-        return PageScroll(panel);
-    }
-
-    private UIElement BuildRemotePage()
-    {
-        _loading = true;
-        StackPanel panel = PagePanel();
-        panel.Children.Add(HeaderCell(T("RemoteSession")));
-        TextBox volume = SettingsTextBox(new TextBox { Text = _remoteVolumeInput.Text, PlaceholderText = "0–100" });
-        volume.InputScope = new InputScope { Names = { new InputScopeName { NameValue = InputScopeNameValue.Number } } };
-        volume.TextChanged += (_, _) =>
-        {
-            if (_loading) return;
-            _remoteVolumeInput.Text = volume.Text;
-            if (_remoteVolumeInput.IsValid) _pendingRemoteVolume = _remoteVolumeInput.Value ?? 100;
-            volume.BorderBrush = _remoteVolumeInput.IsValid ? null : ThemeBrush("SystemFillColorCriticalBrush", Colors.Red);
-            volume.BorderThickness = _remoteVolumeInput.IsValid ? new Thickness(0) : new Thickness(1);
-            UpdateFooterState();
-        };
-        panel.Children.Add(SettingRow(T("RemoteAudioVolume"), volume));
         FinishInitialLoading(panel);
         return PageScroll(panel);
     }
@@ -666,11 +649,11 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         panel.Children.Add(ToggleSettingRow(T("IncludeInHotkeyList"), hotkeyState, hotkeyToggle));
 
         var iconPicker = new ScenarioIconPicker(_draft.Icon, English);
-        panel.Children.Add(SettingRow(T("ScenarioIcon"), iconPicker));
+        Grid iconRow = SettingRowGrid(T("ScenarioIcon"), iconPicker, grouped: true);
         TextBox letters = SettingsTextBox(new TextBox { Text = _draft.IconLetters, MaxLength = 3 });
-        Border lettersRow = SettingRow(T("Letters"), letters);
+        Grid lettersRow = SettingRowGrid(T("Letters"), letters, grouped: true);
         lettersRow.Visibility = _draft.Icon == ScenarioIcon.Letters ? Visibility.Visible : Visibility.Collapsed;
-        panel.Children.Add(lettersRow);
+        panel.Children.Add(GroupedSettingsCard(iconRow, lettersRow));
         iconPicker.SelectionChanged += (_, _) =>
         {
             if (_loading || _draft is null) return;
@@ -751,6 +734,16 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
                 string id = _draftMonitorSlots[slot];
                 if (preset == DisplayResolutionPreset.KeepCurrent) _draft.DisplayResolutionPresets.Remove(id);
                 else _draft.DisplayResolutionPresets[id] = preset;
+
+                // Choosing a resolution should produce a usable scenario without
+                // requiring the user to discover the adjacent scale selector.
+                // They can still select any supported scale afterwards.
+                int? recommendedScale = DisplayResolution.RecommendedScale(preset);
+                if (recommendedScale.HasValue)
+                {
+                    scale.SelectedItem = scaleChoices.FirstOrDefault(item => item.Percent == recommendedScale.Value)
+                        ?? scale.SelectedItem;
+                }
                 UpdateFooterState();
             };
             scale.SelectionChanged += (_, _) =>
@@ -803,35 +796,25 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         ComboBox volume = SettingsComboBox(new ComboBox
         {
             ItemsSource = new[] { T("NoChange"), T("SetVolume") },
-            SelectedIndex = _volumeInput.Enabled ? 1 : 0
+            SelectedIndex = _draft.VolumePercent.HasValue ? 1 : 0
         });
-        StartupVolumeInput input = _volumeInput;
-        TextBox percent = SettingsTextBox(new TextBox { Text = input.Text, PlaceholderText = "0–100" });
-        percent.InputScope = new InputScope
-        {
-            Names = { new InputScopeName { NameValue = InputScopeNameValue.Number } }
-        };
-        AutomationProperties.SetName(percent, T("SetVolume") + " (0–100%)");
-        Border percentRow = SettingRow(T("SetVolume"), percent);
-        percentRow.Visibility = input.Enabled ? Visibility.Visible : Visibility.Collapsed;
-        void CaptureVolume()
+        Grid volumeRow = SettingRowGrid(T("Volume"), volume, grouped: true);
+        Grid percentRow = SettingRowGrid(T("SetVolume"), VolumeSlider(_draft.VolumePercent ?? 100, percentage =>
         {
             if (_loading || _draft is null) return;
-            if (input.IsValid) _draft.VolumePercent = input.Value;
-            percent.BorderBrush = input.IsValid ? null : ThemeBrush("SystemFillColorCriticalBrush", Colors.Red);
-            percent.BorderThickness = input.IsValid ? new Thickness(0) : new Thickness(1);
+            _draft.VolumePercent = percentage;
             UpdateFooterState();
-        }
+        }, T("SetVolume")), grouped: true);
+        percentRow.Visibility = _draft.VolumePercent.HasValue ? Visibility.Visible : Visibility.Collapsed;
         volume.SelectionChanged += (_, _) =>
         {
             if (_loading || volume.SelectedIndex < 0) return;
-            input.Enabled = volume.SelectedIndex == 1;
-            percentRow.Visibility = input.Enabled ? Visibility.Visible : Visibility.Collapsed;
-            CaptureVolume();
+            bool setVolume = volume.SelectedIndex == 1;
+            _draft!.VolumePercent = setVolume ? _draft.VolumePercent ?? 100 : null;
+            percentRow.Visibility = setVolume ? Visibility.Visible : Visibility.Collapsed;
+            UpdateFooterState();
         };
-        percent.TextChanged += (_, _) => { input.Text = percent.Text; CaptureVolume(); };
-        panel.Children.Add(SettingRow(T("Volume"), volume));
-        panel.Children.Add(percentRow);
+        panel.Children.Add(GroupedSettingsCard(volumeRow, percentRow));
 
         FinishInitialLoading(panel);
         return PageScroll(panel);
@@ -1056,18 +1039,32 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         SettingRow(new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center }, control);
 
     private Border SettingRow(FrameworkElement title, FrameworkElement control)
+        => SettingsCard(SettingRowGrid(title, control));
+
+    private Grid SettingRowGrid(string title, FrameworkElement control, bool grouped = false) =>
+        SettingRowGrid(new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center }, control, grouped);
+
+    private Grid SettingRowGrid(FrameworkElement title, FrameworkElement control, bool grouped = false)
     {
         var grid = new Grid { ColumnSpacing = 12 };
+        if (grouped)
+        {
+            grid.Height = 36;
+            grid.Margin = new Thickness(14, 5, 14, 5);
+        }
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.Children.Add(title);
         Grid.SetColumn(control, 1);
         control.VerticalAlignment = VerticalAlignment.Center;
         grid.Children.Add(control);
-        return SettingsCard(grid);
+        return grid;
     }
 
     private Border ToggleSettingRow(string title, TextBlock state, ToggleSwitch toggle)
+        => SettingsCard(ToggleSettingRowGrid(title, state, toggle));
+
+    private Grid ToggleSettingRowGrid(string title, TextBlock state, ToggleSwitch toggle, bool grouped = false)
     {
         state.HorizontalAlignment = HorizontalAlignment.Right;
         state.VerticalAlignment = VerticalAlignment.Center;
@@ -1082,10 +1079,84 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         Grid.SetColumn(toggle, 2);
         right.Children.Add(state);
         right.Children.Add(toggle);
-        return SettingRow(title, right);
+        return SettingRowGrid(title, right, grouped);
     }
 
-    private static Border SettingsCard(Grid content)
+    private Border TogglePreferenceRow(string title, bool value, Action<bool> changed)
+    {
+        var state = new TextBlock
+        {
+            MinWidth = 58,
+            TextAlignment = TextAlignment.Right,
+            Opacity = .72,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var toggle = new ToggleSwitch
+        {
+            IsOn = value,
+            MinWidth = 0,
+            Width = 44,
+            OffContent = string.Empty,
+            OnContent = string.Empty,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        void UpdateState() => state.Text = toggle.IsOn ? (English ? "On" : "Вкл.") : (English ? "Off" : "Откл.");
+        toggle.Toggled += (_, _) =>
+        {
+            UpdateState();
+            if (!_loading) changed(toggle.IsOn);
+        };
+        UpdateState();
+        return ToggleSettingRow(title, state, toggle);
+    }
+
+    private FrameworkElement VolumeSlider(int value, Action<int> changed, string automationName)
+    {
+        var valueText = new TextBlock
+        {
+            Text = $"{value}%",
+            MinWidth = 42,
+            TextAlignment = TextAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var slider = new Slider
+        {
+            Minimum = 0,
+            Maximum = 100,
+            Value = Math.Clamp(value, 0, 100),
+            StepFrequency = 1,
+            SmallChange = 1,
+            LargeChange = 5,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        slider.ValueChanged += (_, _) =>
+        {
+            int percentage = (int)Math.Round(slider.Value);
+            valueText.Text = $"{percentage}%";
+            changed(percentage);
+        };
+        AutomationProperties.SetName(slider, automationName + " (0–100%)");
+        var grid = new Grid { Width = ValueColumnWidth, ColumnSpacing = 10 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.Children.Add(slider);
+        Grid.SetColumn(valueText, 1);
+        grid.Children.Add(valueText);
+        return grid;
+    }
+
+    private static Border GroupedSettingsCard(params FrameworkElement[] rows)
+    {
+        var content = new StackPanel { Spacing = 0 };
+        foreach (FrameworkElement row in rows) content.Children.Add(row);
+        var card = new Border { Child = content, Height = double.NaN, Padding = new Thickness(0), MinHeight = 0 };
+        ApplyControlStyle(card, "RoomSettingsCardStyle");
+        card.Height = double.NaN;
+        card.Padding = new Thickness(0);
+        return card;
+    }
+
+    private static Border SettingsCard(FrameworkElement content)
     {
         var card = new Border { Child = content };
         ApplyControlStyle(card, "RoomSettingsCardStyle");
@@ -1131,17 +1202,23 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         if (_deleteButton is not null)
             _deleteButton.Visibility = IsScenarioPage && !_draftIsNew && _scenarios.Count > 1
                 ? Visibility.Visible : Visibility.Collapsed;
+        if (_applyButton is not null)
+        {
+            _applyButton.Visibility = IsScenarioPage && !_draftIsNew ? Visibility.Visible : Visibility.Collapsed;
+            _applyButton.IsEnabled = !_loading && CanApplyDraft();
+        }
     }
 
-    private bool CanSaveCurrentPage() => _currentPage == "remote" ? _remoteVolumeInput.IsValid :
-        !IsScenarioPage || _draft?.IsComplete == true && _volumeInput.IsValid;
+    private bool CanApplyDraft() => _draft?.IsComplete == true && !_draftIsNew &&
+        !(_settings.Current.ActiveScenarioId == _draft.Id && OperationallyEqual(_draft, _appliedScenarioBaseline));
+
+    private bool CanSaveCurrentPage() => !IsScenarioPage || _draft?.IsComplete == true;
 
     private bool HasCurrentChanges() => _currentPage switch
     {
         "general" => HasUnsavedGeneralChanges(),
         "devices" => HasUnsavedAliasChanges(),
-        "remote" => _remoteVolumeInput.IsValid && _pendingRemoteVolume != _settings.Current.RemoteSessionVolumePercent,
-        _ when IsScenarioPage => _draft is not null && (_draftIsNew || !_volumeInput.IsValid || !ScenarioEquals(_draft, _scenarioBaseline)),
+        _ when IsScenarioPage => _draft is not null && (_draftIsNew || !ScenarioEquals(_draft, _scenarioBaseline)),
         _ => false
     };
 
@@ -1152,7 +1229,6 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         if (!CanSaveCurrentPage()) return false;
         if (_currentPage == "general") return SaveGeneral();
         if (_currentPage == "devices") return SaveAliases();
-        if (_currentPage == "remote") return SaveRemote();
         if (IsScenarioPage) return await SaveScenarioAsync();
         return false;
     }
@@ -1165,8 +1241,10 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
                 _pendingLanguage != _settings.Current.Language;
             StartupService.SetEnabled(_pendingStartWithWindows);
             _settings.Current.StartWithWindows = _pendingStartWithWindows;
-            bool remoteModeChanged = _pendingAdaptiveRemoteSession != _settings.Current.AdaptiveRemoteSession;
             _settings.Current.AdaptiveRemoteSession = _pendingAdaptiveRemoteSession;
+            _settings.Current.RemoteSessionVolumePercent = Math.Clamp(_pendingRemoteVolume, 0, 100);
+            _settings.Current.EnableNotifications = _pendingEnableNotifications;
+            _settings.Current.AutoScaleOnResolutionChange = _pendingAutoScaleOnResolutionChange;
             _settings.Current.StartupScenarioMode = _pendingStartupMode;
             _settings.Current.StartupScenarioId = _pendingStartupScenarioId;
             _settings.Current.Theme = _pendingTheme;
@@ -1175,7 +1253,7 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
             _settings.Save();
             ResetPendingGeneral();
             if (appearanceChanged) BuildShell();
-            else { if (remoteModeChanged) RebuildScenarioNavigation(); ApplyTheme(); RefreshNavigationSelection(); UpdateFooterState(); }
+            else { ApplyTheme(); RefreshNavigationSelection(); UpdateFooterState(); }
             return true;
         }
         catch (Exception ex)
@@ -1184,16 +1262,6 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
             UpdateFooterState();
             return false;
         }
-    }
-
-    private bool SaveRemote()
-    {
-        if (!_remoteVolumeInput.IsValid) return false;
-        _settings.Current.RemoteSessionVolumePercent = Math.Clamp(_pendingRemoteVolume, 0, 100);
-        _settings.Save();
-        ResetPendingRemote();
-        UpdateFooterState();
-        return true;
     }
 
     private bool SaveAliases()
@@ -1216,15 +1284,12 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         }
     }
 
-    private async Task<bool> SaveScenarioAsync()
+    private Task<bool> SaveScenarioAsync()
     {
         SynchronizeAudioBindings(App.Scenarios.Snapshot);
-        if (_draft?.IsComplete != true || !_volumeInput.IsValid) return false;
+        if (_draft?.IsComplete != true) return Task.FromResult(false);
         _draft.Name = _draft.Name.Trim();
         _draft.IconLetters = ScenarioDefinition.MakeIconLetters(_draft.IconLetters);
-        bool wasActive = !_draftIsNew && _settings.Current.ActiveScenarioId == _draft.Id;
-        bool operationalChanged = wasActive && !OperationallyEqual(_draft, _scenarioBaseline);
-
         if (_draftIsNew)
         {
             _scenarios.Add(_draft.Clone());
@@ -1243,24 +1308,48 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         RefreshNavigationSelection();
         UpdateFooterState();
 
-        if (operationalChanged) await PromptApplyScenarioAsync(_draft);
-        return true;
+        return Task.FromResult(true);
     }
 
-    private async Task PromptApplyScenarioAsync(ScenarioDefinition scenario)
+    private async Task ApplyScenarioFromEditorAsync()
     {
-        if (_root.XamlRoot is null) return;
-        var dialog = new ContentDialog
+        if (_draft?.IsComplete != true || _draftIsNew) return;
+        ScenarioDefinition scenario = _draft;
+        bool dirty = HasCurrentChanges();
+        if (dirty && _root.XamlRoot is not null)
         {
-            XamlRoot = _root.XamlRoot,
-            Title = English ? $"Scenario “{scenario.Name}” saved" : $"Сценарий «{scenario.Name}» сохранён",
-            Content = English ? "Apply the updated scenario now?" : "Применить обновлённый сценарий сейчас?",
-            PrimaryButtonText = English ? "Apply now" : "Применить сейчас",
-            CloseButtonText = English ? "Later" : "Позже",
-            DefaultButton = ContentDialogButton.Primary
-        };
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
-            await _tray.ApplyScenarioAsync(scenario.Id);
+            var dialog = new ContentDialog
+            {
+                XamlRoot = _root.XamlRoot,
+                Title = English ? "Apply scenario?" : "Применить сценарий?",
+                Content = English ? "Save these changes before applying, or apply them only for this session."
+                    : "Можно сохранить изменения перед применением или применить их только для текущего сеанса.",
+                PrimaryButtonText = English ? "Save and apply" : "Сохранить и применить",
+                SecondaryButtonText = English ? "Apply without saving" : "Применить без сохранения",
+                CloseButtonText = English ? "Cancel" : "Отмена",
+                DefaultButton = ContentDialogButton.Primary
+            };
+            ContentDialogResult choice = await dialog.ShowAsync();
+            if (choice == ContentDialogResult.Primary)
+            {
+                if (!await SaveScenarioAsync()) return;
+                scenario = _draft!;
+                ApplyResult result = await _tray.ApplyScenarioAsync(scenario.Id);
+                if (result.Success) _appliedScenarioBaseline = scenario.Clone();
+            }
+            else if (choice == ContentDialogResult.Secondary)
+            {
+                ApplyResult result = await _tray.ApplyScenarioDraftAsync(scenario);
+                if (result.Success) _appliedScenarioBaseline = scenario.Clone();
+            }
+            else return;
+        }
+        else
+        {
+            ApplyResult result = await _tray.ApplyScenarioAsync(scenario.Id);
+            if (result.Success) _appliedScenarioBaseline = scenario.Clone();
+        }
+        UpdateFooterState();
     }
 
     private async Task DeleteScenarioAsync()
@@ -1440,6 +1529,7 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
             }
         }
         _scenarioBaseline = null;
+        _appliedScenarioBaseline = null;
         _draftIsNew = true;
         SetMonitorSlots(_draft);
     }
@@ -1449,13 +1539,13 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         ScenarioDefinition? scenario = _scenarios.FirstOrDefault(item => item.Id == id);
         _draft = scenario?.Clone();
         _scenarioBaseline = scenario?.Clone();
+        _appliedScenarioBaseline = _settings.Current.ActiveScenarioId == id ? scenario?.Clone() : null;
         _draftIsNew = false;
         SetMonitorSlots(_draft);
     }
 
     private void SetMonitorSlots(ScenarioDefinition? scenario)
     {
-        _volumeInput = new StartupVolumeInput(scenario?.VolumePercent);
         _draftMonitorSlots = new string[4];
         if (scenario is null) return;
         for (int index = 0; index < Math.Min(4, scenario.DisplayIds.Count); index++)
@@ -1555,17 +1645,14 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
     {
         _pendingStartWithWindows = _settings.Current.StartWithWindows;
         _pendingAdaptiveRemoteSession = _settings.Current.AdaptiveRemoteSession;
+        _pendingRemoteVolume = Math.Clamp(_settings.Current.RemoteSessionVolumePercent, 0, 100);
+        _pendingEnableNotifications = _settings.Current.EnableNotifications;
+        _pendingAutoScaleOnResolutionChange = _settings.Current.AutoScaleOnResolutionChange;
         _pendingStartupMode = _settings.Current.StartupScenarioMode;
         _pendingStartupScenarioId = _settings.Current.StartupScenarioId;
         _pendingTheme = _settings.Current.Theme;
         _pendingLanguage = _settings.Current.Language;
         _pendingHotKey = CloneHotKey(_settings.Current.SwitchScenarioHotKey);
-    }
-
-    private void ResetPendingRemote()
-    {
-        _pendingRemoteVolume = Math.Clamp(_settings.Current.RemoteSessionVolumePercent, 0, 100);
-        _remoteVolumeInput = new StartupVolumeInput(_pendingRemoteVolume);
     }
 
     private void ResetPendingAliases()
@@ -1580,6 +1667,9 @@ public sealed class WinUiSettingsWindow : Window, IDisposable
         AppSettings current = _settings.Current;
         return _pendingStartWithWindows != current.StartWithWindows ||
             _pendingAdaptiveRemoteSession != current.AdaptiveRemoteSession ||
+            _pendingRemoteVolume != current.RemoteSessionVolumePercent ||
+            _pendingEnableNotifications != current.EnableNotifications ||
+            _pendingAutoScaleOnResolutionChange != current.AutoScaleOnResolutionChange ||
             _pendingStartupMode != current.StartupScenarioMode ||
             _pendingStartupScenarioId != current.StartupScenarioId ||
             _pendingTheme != current.Theme ||

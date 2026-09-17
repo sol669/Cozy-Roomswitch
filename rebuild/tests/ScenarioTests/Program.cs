@@ -339,29 +339,18 @@ Guid hdmiContainer = Guid.NewGuid();
 }
 // Startup volume is an apply-time instruction, never a continuously enforced target.
 {
-    var fresh = new ScenarioDefinition();
-    var input = new StartupVolumeInput(fresh.VolumePercent);
-    Check(fresh.VolumePercent is null && !input.Enabled && input.IsValid && input.Value is null,
-        "new scenario defaults to do-not-change volume with hidden numeric input");
-    input.Enabled = true;
-    Check(!input.IsValid, "enabling volume requires an explicit numeric value");
-    foreach (int value in new[] { 0, 1, 27, 63, 99, 100 })
+    var scenario = Scenario("Draft apply", ["main"]);
+    scenario.VolumePercent = 30;
+    ScenarioDefinition draft = scenario.Clone();
+    draft.VolumePercent = 72;
+    var (devices, settings, coordinator) = Fixture(Snapshot([Screen("main")], Sound()), [scenario]);
+    using (coordinator)
     {
-        input.Text = value.ToString();
-        Check(input.IsValid && input.Value == value, $"free whole percentage {value} is accepted");
-    }
-    foreach (string text in new[] { "", " ", "-1", "101", "999999999999", "27.5", "27,5", "+10", "10%", "abc", "1e2" })
-    {
-        input.Text = text;
-        Check(!input.IsValid, $"invalid percentage '{text}' cannot be saved");
-    }
-    input.Enabled = false;
-    Check(input.IsValid && input.Value is null, "do-not-change hides and ignores incomplete numeric input");
-    foreach (int? saved in new int?[] { null, 0, 10, 73, 100 })
-    {
-        var restored = new StartupVolumeInput(saved);
-        Check(restored.IsValid && restored.Value == saved && restored.Enabled == saved.HasValue,
-            $"legacy saved volume {saved?.ToString() ?? "null"} keeps its meaning");
+        Check((await coordinator.ApplyDraftAsync(draft)).Success, "unsaved draft can be applied");
+        Check(devices.AudioCalls.Single().Volume == 72 && settings.Scenarios.Single().VolumePercent == 30,
+            "applying a draft never writes its volume into the saved scenario");
+        Check(coordinator.DesiredScenario?.VolumePercent == 72,
+            "status follows the unsaved draft until it is saved or replaced");
     }
 }
 {

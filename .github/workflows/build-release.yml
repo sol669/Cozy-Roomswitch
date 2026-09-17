@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  APP_VERSION: 1.0.5
+  APP_VERSION: 1.0.6
   PROJECT: rebuild/src/RoomSwitcherTray.Core/RoomSwitcherTray.Core.csproj
 
 jobs:
@@ -47,7 +47,11 @@ jobs:
           dotnet publish $env:PROJECT -c Release -r win-x64 --self-contained false -p:Platform=x64 -p:WindowsAppSDKSelfContained=false -o publish
           if ($LASTEXITCODE) { throw 'Standard publish failed' }
           $build = 'rebuild/src/RoomSwitcherTray.Core/bin/x64/Release/net8.0-windows10.0.19041.0/win-x64'
-          Copy-Item -LiteralPath "$build/App.xbf","$build/CozyRoomswitch.pri" -Destination publish
+          $packages = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $env:USERPROFILE '.nuget\packages' }
+          $winUiResources = Join-Path $packages 'microsoft.windowsappsdk.winui\2.3.0\runtimes-framework\win-x64\native\Microsoft.UI.Xaml.Controls.pri'
+          if (-not (Test-Path -LiteralPath $winUiResources)) { throw 'WinUI resource package was not restored.' }
+          Copy-Item -LiteralPath "$build/App.xbf" -Destination publish
+          Copy-Item -LiteralPath $winUiResources -Destination 'publish/CozyRoomswitch.pri'
           Copy-Item installer/README-Portable.txt publish/README-Portable.txt
           & rebuild/tests/Verify-Package.ps1 -PublishPath publish -ExpectedVersion $env:APP_VERSION -SelfContained $false
           Compress-Archive -Path publish/* -DestinationPath Room-Switcher-Tray-Portable-win-x64.zip -CompressionLevel Optimal
@@ -58,7 +62,11 @@ jobs:
           dotnet publish $env:PROJECT -c Release -r win-x64 --self-contained true -p:Platform=x64 -p:WindowsAppSDKSelfContained=true -o publish-self-contained
           if ($LASTEXITCODE) { throw 'Self-contained publish failed' }
           $build = 'rebuild/src/RoomSwitcherTray.Core/bin/x64/Release/net8.0-windows10.0.19041.0/win-x64'
-          Copy-Item -LiteralPath "$build/App.xbf","$build/CozyRoomswitch.pri" -Destination publish-self-contained
+          $packages = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $env:USERPROFILE '.nuget\packages' }
+          $winUiResources = Join-Path $packages 'microsoft.windowsappsdk.winui\2.3.0\runtimes-framework\win-x64\native\Microsoft.UI.Xaml.Controls.pri'
+          if (-not (Test-Path -LiteralPath $winUiResources)) { throw 'WinUI resource package was not restored.' }
+          Copy-Item -LiteralPath "$build/App.xbf" -Destination publish-self-contained
+          Copy-Item -LiteralPath $winUiResources -Destination 'publish-self-contained/CozyRoomswitch.pri'
           Copy-Item installer/README-Portable.txt publish-self-contained/README-Portable.txt
           & rebuild/tests/Verify-Package.ps1 -PublishPath publish-self-contained -ExpectedVersion $env:APP_VERSION -SelfContained $true
           Compress-Archive -Path publish-self-contained/* -DestinationPath Room-Switcher-Tray-Portable-Self-Contained-win-x64.zip -CompressionLevel Optimal
@@ -91,7 +99,7 @@ jobs:
           name: RoomSwitcher ${{ env.APP_VERSION }}
           tag_name: v${{ env.APP_VERSION }}
           target_commitish: ${{ github.sha }}
-          body_path: rebuild/RELEASE-1.0.5.md
+          body_path: rebuild/RELEASE-1.0.6.md
           draft: true
           files: |
             Room-Switcher-Tray-Portable-win-x64.zip

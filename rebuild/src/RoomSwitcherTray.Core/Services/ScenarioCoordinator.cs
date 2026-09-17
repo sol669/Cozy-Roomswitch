@@ -24,6 +24,9 @@ public class ScenarioCoordinator : IDisposable
     private bool _disposed;
     private string? _failure;
     private Guid? _desiredId;
+    // A draft can be applied from the editor without overwriting its saved scenario.
+    // Keep that intent for status evaluation until the user saves or switches away.
+    private ScenarioDefinition? _desiredScenarioOverride;
     private bool _hasAttempt;
     private bool _audioError;
     private bool _readError;
@@ -41,8 +44,10 @@ public class ScenarioCoordinator : IDisposable
         _audioTimeout = audioTimeout ?? TimeSpan.FromSeconds(18);
     }
 
-    public ScenarioDefinition? DesiredScenario => _settings().Scenarios.FirstOrDefault(item =>
-        item.Id == (_hasAttempt ? _desiredId : _settings().ActiveScenarioId));
+    public ScenarioDefinition? DesiredScenario => _hasAttempt && _desiredScenarioOverride?.Id == _desiredId
+        ? _desiredScenarioOverride
+        : _settings().Scenarios.FirstOrDefault(item => item.Id ==
+            (_hasAttempt ? _desiredId : _settings().ActiveScenarioId));
 
     public ScenarioStatus Status
     {
@@ -107,11 +112,28 @@ public class ScenarioCoordinator : IDisposable
         ScenarioDefinition? original = _settings().Scenarios.FirstOrDefault(item => item.Id == scenarioId);
         bool english = _settings().Language == AppLanguage.English;
         if (original?.IsComplete != true) return new(false, english ? "Scenario is not configured." : "Сценарий не настроен.");
+        return await ApplyCoreAsync(original.Clone(), transient: false);
+    }
+
+    public async Task<ApplyResult> ApplyDraftAsync(ScenarioDefinition draft)
+    {
+        if (_disposed) return new(false, "");
+        bool english = _settings().Language == AppLanguage.English;
+        if (!draft.IsComplete) return new(false, english ? "Scenario is not configured." : "Сценарий не настроен.");
+        return await ApplyCoreAsync(draft.Clone(), transient: true);
+    }
+
+    private async Task<ApplyResult> ApplyCoreAsync(ScenarioDefinition scenario, bool transient)
+    {
+        bool english = _settings().Language == AppLanguage.English;
         if (IsApplying) return new(false, english ? "Switching is in progress." : "Переключение уже выполняется.");
         CancelAudioWait();
         int generation = ++_generation;
-        ScenarioDefinition scenario = original.Clone();
-        _hasAttempt = true; _desiredId = scenario.Id; _failure = null; _audioError = false;
+        _hasAttempt = true;
+        _desiredId = scenario.Id;
+        _desiredScenarioOverride = transient ? scenario.Clone() : null;
+        _failure = null;
+        _audioError = false;
         IsApplying = true;
         Changed?.Invoke(this, EventArgs.Empty);
         string[] previous = [];
@@ -148,7 +170,7 @@ public class ScenarioCoordinator : IDisposable
             AudioDevice? audio = ScenarioPolicy.FindAudio(scenario, Snapshot);
             if (audio is not null)
             {
-                ApplyAudioSafely(scenario, audio);
+                ApplyAudioSafely(scenario, audio, persistBinding: !transient);
                 try { await RefreshAsync(); }
                 catch (Exception audioRefreshError) { _log(audioRefreshError); _audioError = true; }
             }
@@ -157,9 +179,9 @@ public class ScenarioCoordinator : IDisposable
                 var wait = new CancellationTokenSource(_audioTimeout);
                 _audioWait = wait;
                 _pendingAudioScenario = scenario;
-                _ = AwaitAudioAsync(scenario, generation, wait);
+                _ = AwaitAudioAsync(scenario, generation, wait, persistBinding: !transient);
             }
-            return new(true, english ? $"Scenario “{scenario.Name}” selected." : $"Выбран сценарий «{scenario.Name}».");
+            return new(true, english ? $"Scenario “{scenario.Name}” applied." : $"Сценарий «{scenario.Name}» применён.");
         }
         catch (Exception ex)
         {
@@ -187,13 +209,14 @@ public class ScenarioCoordinator : IDisposable
         }
     }
 
-    private void ApplyAudioSafely(ScenarioDefinition scenario, AudioDevice device)
+    private void ApplyAudioSafely(ScenarioDefinition scenario, AudioDevice device, bool persistBinding)
     {
         try
         {
             // Backend sets volume on this exact endpoint, never on a Windows fallback.
             _devices.ApplyAudio(device, scenario.VolumePercent);
-            ScenarioDefinition? saved = _settings().Scenarios.FirstOrDefault(item => item.Id == scenario.Id);
+            ScenarioDefinition? saved = persistBinding
+                ? _settings().Scenarios.FirstOrDefault(item => item.Id == scenario.Id) : null;
             string containerId = device.ContainerId?.ToString("D") ?? scenario.AudioDeviceContainerId;
             if (saved is not null && (saved.AudioDeviceId != device.Id ||
                 !ScenarioPolicy.Same(saved.AudioDeviceContainerId, containerId)))
@@ -217,7 +240,7 @@ public class ScenarioCoordinator : IDisposable
     private bool HasActiveRequestedDisplay(IEnumerable<string> ids) => ids.Any(id => Snapshot.Displays.Any(item =>
         item.IsAvailable && item.IsActive && ScenarioPolicy.Same(id, item.Id)));
 
-    private async Task AwaitAudioAsync(ScenarioDefinition scenario, int generation, CancellationTokenSource wait)
+    private async Task AwaitAudioAsync(ScenarioDefinition scenario, int generation, CancellationTokenSource wait, bool persistBinding)
     {
         try
         {
@@ -229,7 +252,7 @@ public class ScenarioCoordinator : IDisposable
                 {
                     if (_disposed || generation != _generation || wait.IsCancellationRequested) return;
                     if (!PendingIntentStillMatches(scenario)) return;
-                    ApplyAudioSafely(scenario, device);
+                    ApplyAudioSafely(scenario, device, persistBinding);
                     await RefreshAsync();
                     return;
                 }
@@ -261,11 +284,16 @@ public class ScenarioCoordinator : IDisposable
 
     public void SettingsChanged()
     {
+        if (_desiredScenarioOverride is not null && _settings().Scenarios.FirstOrDefault(item =>
+            item.Id == _desiredScenarioOverride.Id) is ScenarioDefinition saved &&
+            SameOperationalSettings(saved, _desiredScenarioOverride))
+            _desiredScenarioOverride = null;
         if (_pendingAudioScenario is not null && !PendingIntentStillMatches(_pendingAudioScenario))
             CancelAudioWait();
         if (_hasAttempt && !_settings().Scenarios.Any(item => item.Id == _desiredId))
         {
             _hasAttempt = false;
+            _desiredScenarioOverride = null;
             _failure = null;
             _audioError = false;
         }
@@ -273,13 +301,22 @@ public class ScenarioCoordinator : IDisposable
 
     private bool PendingIntentStillMatches(ScenarioDefinition pending)
     {
-        ScenarioDefinition? current = _settings().Scenarios.FirstOrDefault(item => item.Id == pending.Id);
+        ScenarioDefinition? current = _desiredScenarioOverride?.Id == pending.Id ? _desiredScenarioOverride :
+            _settings().Scenarios.FirstOrDefault(item => item.Id == pending.Id);
         return current is not null && current.DisplayIds.SequenceEqual(pending.DisplayIds, StringComparer.OrdinalIgnoreCase) &&
             (ScenarioPolicy.Same(current.AudioDeviceId, pending.AudioDeviceId) ||
                 ScenarioPolicy.Same(current.AudioDeviceId, AudioEndpointMigration.FindReplacement(pending, Snapshot)?.Id)) &&
             ScenarioPolicy.Same(current.AudioDeviceContainerId, pending.AudioDeviceContainerId) &&
             current.VolumePercent == pending.VolumePercent;
     }
+
+    private static bool SameOperationalSettings(ScenarioDefinition left, ScenarioDefinition right) =>
+        left.DisplayIds.SequenceEqual(right.DisplayIds, StringComparer.OrdinalIgnoreCase) &&
+        left.DisplayResolutionPresets.OrderBy(item => item.Key).SequenceEqual(right.DisplayResolutionPresets.OrderBy(item => item.Key)) &&
+        left.DisplayScalePercents.OrderBy(item => item.Key).SequenceEqual(right.DisplayScalePercents.OrderBy(item => item.Key)) &&
+        ScenarioPolicy.Same(left.AudioDeviceId, right.AudioDeviceId) &&
+        ScenarioPolicy.Same(left.AudioDeviceContainerId, right.AudioDeviceContainerId) &&
+        left.VolumePercent == right.VolumePercent;
 
     private void SaveSafely()
     {
